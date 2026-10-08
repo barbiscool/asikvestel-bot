@@ -502,6 +502,23 @@ class ChatBridge extends EventEmitter {
     // Broadcast to SSE clients
     this.broadcastToSse(formatted);
     this.emit('message', formatted);
+
+    // If configured to relay to external Web API
+    const webApiUrl = this.config?.WEB_API_URL || process.env.WEB_API_URL;
+    if (webApiUrl && typeof fetch === 'function') {
+      const secret = this.config?.CHAT_BRIDGE_INTERNAL_SECRET || this.config?.SESSION_SECRET || process.env.CHAT_BRIDGE_INTERNAL_SECRET;
+      fetch(`${webApiUrl.replace(/\/$/, '')}/api/chat/internal/incoming`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-internal-secret': secret || ''
+        },
+        body: JSON.stringify({ message: formatted })
+      }).catch(err => {
+        // Silently log failure without crashing
+        // console.warn('[ChatBridge] Web API relay warning:', err.message);
+      });
+    }
   }
 
   /**
