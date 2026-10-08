@@ -2,6 +2,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { getMediaHostStats } = require('./mediaStorageWatchdog');
 
 /**
  * Checks whether the invoking Discord user is authorized to run admin commands.
@@ -98,7 +99,11 @@ function readDiskUsage() {
 }
 
 /**
- * Gathers Docker container statistics for Nighty and Pterodactyl/Minecraft.
+ * Gathers Docker container statistics dynamically for all running services:
+ * - Nighty Headless Selfbot
+ * - Vaultwarden Password Manager
+ * - mc-router Minecraft Traffic Router
+ * - Pterodactyl Minecraft Fabric/Java Server
  */
 function readDockerContainers() {
   const result = {
@@ -115,22 +120,63 @@ function readDockerContainers() {
       port: '127.0.0.1:8088 -> nighty.asikvestel.org',
       isOnline: false
     },
+    vaultwarden: {
+      id: '-',
+      name: 'vaultwarden',
+      image: 'vaultwarden/server:latest',
+      status: 'Çevrimdışı / Tespit Edilemedi',
+      health: 'Bilinmiyor',
+      cpu: '0.0%',
+      mem: '0 MB / 0 MB',
+      netIO: '0B / 0B',
+      blockIO: '0B / 0B',
+      port: '127.0.0.1:8090 -> vault.asikvestel.org',
+      isOnline: false
+    },
+    mcRouter: {
+      id: '-',
+      name: 'mc-router',
+      image: 'itzg/mc-router:latest',
+      status: 'Çevrimdışı / Tespit Edilemedi',
+      cpu: '0.0%',
+      mem: '0 MB / 0 MB',
+      port: '0.0.0.0:25565 (TCP/UDP)',
+      isOnline: false
+    },
     minecraft: {
       id: '-',
-      containerName: 'a4bb6cc7-c9df-4e91-b928-bc89db472766',
-      image: 'ghcr.io/pterodactyl/yolks:java_21',
+      containerName: 'pterodactyl-mc',
+      image: 'ghcr.io/ptero-eggs/yolks:java_25',
       status: 'Çevrimdışı / Hazırlanıyor',
-      type: 'Fabric 1.21 (Java 21)',
-      ports: '62.83.32.164:25565 (TCP/UDP)',
+      type: 'Fabric (Java 25)',
+      ports: '62.83.32.164:25565 / 25566 (TCP/UDP)',
       cpu: '0.0%',
       mem: '0 MB / 0 MB',
       netIO: '0B / 0B',
       blockIO: '0B / 0B',
       isOnline: false
-    }
+    },
+    allContainers: []
   };
 
   try {
+    // 1. Query running containers via docker ps
+    const psOutput = execSync('docker ps --format "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"', {
+      timeout: 2500,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore']
+    });
+
+    const psMap = new Map();
+    const psLines = psOutput.trim().split('\n').filter(Boolean);
+    for (const line of psLines) {
+      const [id, names, image, status, ports] = line.split('\t');
+      psMap.set(id.slice(0, 12), { id: id.slice(0, 12), name: names, image, status, ports });
+      // Also map by name
+      psMap.set(names, { id: id.slice(0, 12), name: names, image, status, ports });
+    }
+
+    // 2. Query resource stats via docker stats
     const statsOutput = execSync('docker stats --no-stream --format "{{.ID}}\t{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}"', {
       timeout: 2500,
       encoding: 'utf8',
@@ -141,36 +187,110 @@ function readDockerContainers() {
     for (const line of lines) {
       const parts = line.split('\t');
       if (parts.length < 4) continue;
-      const [id, name, cpuPerc, memUsageStr, netIO, blockIO] = parts;
+      const [idRaw, name, cpuPerc, memUsageStr, netIO, blockIO] = parts;
+      const shortId = idRaw.slice(0, 12);
+      const psInfo = psMap.get(shortId) || psMap.get(name) || {};
+      const statusText = psInfo.status || '🟢 Up';
 
-      if (name.toLowerCase().includes('nighty')) {
+      const containerObj = {
+        id: shortId,
+        name,
+        image: psInfo.image || 'bilinmiyor',
+        status: `🟢 ${statusText}`,
+        cpu: cpuPerc || '0%',
+        mem: memUsageStr || '0 MB',
+        netIO: netIO || '0B / 0B',
+        blockIO: blockIO || '0B / 0B',
+        ports: psInfo.ports || '',
+        isOnline: true
+      };
+
+      result.allContainers.push(containerObj);
+
+      const nameLower = (name || '').toLowerCase();
+      const imageLower = (psInfo.image || '').toLowerCase();
+
+      if (nameLower.includes('nighty') || imageLower.includes('nighty')) {
         result.nighty = {
-          id: id.slice(0, 12),
-          name: 'nighty',
-          image: 'nighty-linux-headless:latest',
-          status: '🟢 Çalışıyor (Healthy)',
-          health: 'Sağlıklı',
-          cpu: cpuPerc || '0%',
-          mem: memUsageStr || '0 MB',
-          netIO: netIO || '0B / 0B',
-          blockIO: blockIO || '0B / 0B',
-          port: '127.0.0.1:8088 -> nighty.asikvestel.org',
-          isOnline: true
+          ...containerObj,
+          image: psInfo.image || 'nighty-linux-headless:latest',
+          health: statusText.includes('healthy') ? 'Sağlıklı' : 'Aktif',
+          port: '127.0.0.1:8088 -> nighty.asikvestel.org'
         };
-      } else {
+      } else if (nameLower.includes('vaultwarden') || imageLower.includes('vaultwarden')) {
+        result.vaultwarden = {
+          ...containerObj,
+          image: psInfo.image || 'vaultwarden/server:latest',
+          health: statusText.includes('healthy') ? 'Sağlıklı' : 'Aktif',
+          port: '127.0.0.1:8090 -> vault.asikvestel.org'
+        };
+      } else if (nameLower.includes('mc-router') || imageLower.includes('mc-router')) {
+        result.mcRouter = {
+          ...containerObj,
+          image: psInfo.image || 'itzg/mc-router:latest',
+          port: '0.0.0.0:25565 (TCP/UDP)'
+        };
+      } else if (imageLower.includes('ptero') || imageLower.includes('yolks') || /^[0-9a-f-]{36}$/.test(nameLower)) {
         result.minecraft = {
-          id: id.slice(0, 12),
+          ...containerObj,
           containerName: name,
-          image: 'ghcr.io/pterodactyl/yolks:java_21',
-          status: '🟢 Çevrimiçi (Aktif)',
-          type: 'Fabric 1.21 (Java 21)',
-          ports: '62.83.32.164:25565 (TCP/UDP)',
-          cpu: cpuPerc || '0%',
-          mem: memUsageStr || '0 MB',
-          netIO: netIO || '0B / 0B',
-          blockIO: blockIO || '0B / 0B',
-          isOnline: true
+          type: imageLower.includes('25') ? 'Fabric (Java 25)' : 'Fabric (Java 21)',
+          ports: '62.83.32.164:25565 / 25566 (TCP/UDP)'
         };
+      }
+    }
+  } catch {}
+
+  return result;
+}
+
+/**
+ * Gathers PM2 process details via pm2 jlist:
+ * - asikvestel-vault (Web Studio API on port 4000)
+ * - asikvestel-media (Media Host CDN on port 4500)
+ * - asikvestel-bot (Discord Bot Daemon)
+ */
+function readPm2Processes() {
+  const result = {
+    available: false,
+    processes: [],
+    vaultApp: null,
+    mediaApp: null,
+    botApp: null,
+    totalMemoryBytes: 0
+  };
+
+  try {
+    const rawJson = execSync('pm2 jlist', {
+      timeout: 2500,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore']
+    });
+
+    const parsed = JSON.parse(rawJson);
+    if (Array.isArray(parsed)) {
+      result.available = true;
+      for (const proc of parsed) {
+        const memBytes = proc.monit?.memory || 0;
+        result.totalMemoryBytes += memBytes;
+
+        const info = {
+          name: proc.name,
+          pmId: proc.pm_id,
+          pid: proc.pid,
+          status: proc.pm2_env?.status || 'online',
+          memoryBytes: memBytes,
+          cpuPercent: proc.monit?.cpu || 0,
+          uptimeMs: proc.pm2_env?.pm_uptime ? (Date.now() - proc.pm2_env.pm_uptime) : 0,
+          restarts: proc.pm2_env?.restart_time || 0,
+          version: proc.pm2_env?.version || '1.0.0',
+          mode: proc.pm2_env?.exec_mode || 'fork'
+        };
+
+        result.processes.push(info);
+        if (proc.name === 'asikvestel-vault') result.vaultApp = info;
+        else if (proc.name === 'asikvestel-media') result.mediaApp = info;
+        else if (proc.name === 'asikvestel-bot') result.botApp = info;
       }
     }
   } catch {}
@@ -204,7 +324,47 @@ function readDatabaseInfo(config = {}) {
 }
 
 /**
- * Gathers system hardware, memory, uptime, process, Docker, and database metrics.
+ * Returns static & detected systemd services and 5 proxied domains.
+ */
+function readSystemServices() {
+  const domains = [
+    { domain: 'asikvestel.org', service: 'Web Studio & API', target: 'http://127.0.0.1:4000', ssl: true },
+    { domain: 'media.asikvestel.org', service: 'CDN Medya Host', target: 'http://127.0.0.1:4500', ssl: true },
+    { domain: 'nighty.asikvestel.org', service: 'Nighty Selfbot Web UI', target: 'http://127.0.0.1:8088', ssl: true },
+    { domain: 'panel.asikvestel.org', service: 'Pterodactyl Game Panel', target: 'http://127.0.0.1:8080', ssl: true },
+    { domain: 'vault.asikvestel.org', service: 'Vaultwarden Parola Kasası', target: 'http://127.0.0.1:8090', ssl: true }
+  ];
+
+  let nginxStatus = '🟢 Aktif';
+  let wingsStatus = '🟢 Aktif';
+  let mariadbStatus = '🟢 Aktif';
+  let redisStatus = '🟢 Aktif';
+
+  try {
+    const s = execSync('systemctl is-active nginx wings mariadb redis-server 2>/dev/null || true', {
+      timeout: 1500,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore']
+    }).trim().split('\n');
+    if (s[0] && s[0] !== 'active') nginxStatus = '🔴 Pasif';
+    if (s[1] && s[1] !== 'active') wingsStatus = '🔴 Pasif';
+    if (s[2] && s[2] !== 'active') mariadbStatus = '🔴 Pasif';
+    if (s[3] && s[3] !== 'active') redisStatus = '🔴 Pasif';
+  } catch {}
+
+  return {
+    domains,
+    systemd: {
+      nginx: nginxStatus,
+      wings: wingsStatus,
+      mariadb: mariadbStatus,
+      redis: redisStatus
+    }
+  };
+}
+
+/**
+ * Gathers system hardware, memory, uptime, process, Docker, PM2, and database metrics.
  */
 function getSystemStats(config = {}) {
   const cpus = os.cpus() || [];
@@ -216,7 +376,10 @@ function getSystemStats(config = {}) {
   const meminfo = readMemInfo();
   const disk = readDiskUsage();
   const containers = readDockerContainers();
+  const pm2 = readPm2Processes();
   const database = readDatabaseInfo(config);
+  const services = readSystemServices();
+  const mediaHost = getMediaHostStats(config);
 
   const availableMem = meminfo.available > 0 ? meminfo.available : freeMem;
   const swapTotal = meminfo.swapTotal;
@@ -254,8 +417,14 @@ function getSystemStats(config = {}) {
       nodeVersion: process.version
     },
     nighty: containers.nighty,
+    vaultwarden: containers.vaultwarden,
+    mcRouter: containers.mcRouter,
     minecraft: containers.minecraft,
-    database
+    allContainers: containers.allContainers,
+    pm2,
+    database,
+    services,
+    mediaHost
   };
 }
 
@@ -277,7 +446,6 @@ function formatSystemStatsMessage(stats) {
   const sysUptime = formatDuration(stats.uptime.systemUptimeSeconds);
   const botUptime = formatDuration(stats.uptime.processUptimeSeconds);
 
-  // Status indicator color (green <= 75%, orange <= 90%, red > 90%)
   let embedColor = 0x22c55e; // Green
   if (stats.memory.usedPercent > 90) {
     embedColor = 0xef4444; // Red
@@ -311,8 +479,8 @@ function formatSystemStatsMessage(stats) {
         inline: true
       },
       {
-        name: '🌐 İşletim Sistemi',
-        value: `${stats.os.platform} (${stats.os.arch}) - ${stats.os.release}`,
+        name: '🌐 İşletim Sistemi & Portlar',
+        value: `${stats.os.platform} (${stats.os.arch}) - ${stats.os.release}\n**Nginx Proxy:** 5 Aktif Domain (80/443/8443)`,
         inline: true
       }
     ],
@@ -331,6 +499,9 @@ module.exports = {
   isAuthorizedAdmin,
   formatDuration,
   formatBytes,
+  readDockerContainers,
+  readPm2Processes,
+  readSystemServices,
   getSystemStats,
   formatSystemStatsMessage
 };

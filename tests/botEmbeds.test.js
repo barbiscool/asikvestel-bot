@@ -7,6 +7,7 @@ const {
   createImageEmbed,
   createQuoteEmbed,
   createStatsEmbed,
+  createMediaHostStatsEmbed,
   createSystemEmbed,
   createStatusAlertEmbed
 } = require('../src/botEmbeds');
@@ -134,4 +135,51 @@ test('Bot Embeds: operational telemetry, system status, and alert embeds', () =>
   const warnAlert = createStatusAlertEmbed({ type: 'warning', title: 'Uyarı', message: 'Yetkisiz erişim' });
   assert.strictEqual(warnAlert.embeds[0].data.color, BOT_COLORS.AMBER);
   assert.ok(warnAlert.embeds[0].data.title.includes('Uyarı'));
+
+  // 3. Media host storage embed (/media-stats)
+  const mediaHostPayload = createMediaHostStatsEmbed({
+    stats: {
+      dbPath: '/var/www/media-host/data/media.db',
+      dbExists: true,
+      dbSizeBytes: 16384,
+      dbSizeFormatted: '16.00 KB',
+      r2: {
+        usedBytes: 1024 * 1024 * 1024 * 2.5,
+        usedFormatted: '2.50 GB',
+        maxBytes: 10 * 1024 * 1024 * 1024,
+        maxFormatted: '10.00 GB',
+        percentUsed: '25.0',
+        fileCount: 420,
+        bucketName: 'mediahost-community'
+      },
+      vps: {
+        usedBytes: 1024 * 1024 * 1024 * 20,
+        usedFormatted: '20.00 GB',
+        freeBytes: 1024 * 1024 * 1024 * 80,
+        freeFormatted: '80.00 GB',
+        totalBytes: 1024 * 1024 * 1024 * 100,
+        totalFormatted: '100.00 GB',
+        percentUsed: '20.0'
+      },
+      stats: {
+        totalFiles: 420,
+        totalBytesFormatted: '2.50 GB',
+        userCount: 8,
+        activeInvites: 2,
+        bannedCount: 0
+      }
+    },
+    config: { MEDIA_HOST_URL: 'https://media.asikvestel.org' }
+  });
+
+  assert.strictEqual(mediaHostPayload.embeds.length, 1);
+  assert.strictEqual(mediaHostPayload.components.length, 1);
+  const mediaEmbed = mediaHostPayload.embeds[0].data;
+  assert.strictEqual(mediaEmbed.color, BOT_COLORS.SUCCESS);
+  assert.ok(mediaEmbed.title.includes('media.asikvestel.org'));
+  assert.ok(mediaEmbed.fields.some(f => f.name.includes('Cloudflare R2')));
+  assert.ok(mediaEmbed.fields.some(f => f.name.includes('NVMe Disk')));
+  assert.ok(mediaEmbed.fields.some(f => f.name.includes('Kullanıcılar')));
+  assert.strictEqual(mediaHostPayload.components[0].components[0].data.label, 'Medya Paneli');
+  assert.strictEqual(mediaHostPayload.components[0].components[1].data.custom_id, 'media_stats_refresh');
 });

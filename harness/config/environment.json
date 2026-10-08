@@ -1,0 +1,99 @@
+{
+  "version": "2.0",
+  "project": {
+    "name": "asikvestel-bot",
+    "type": "hybrid",
+    "language": "javascript",
+    "description": "Standalone Discord.js bot and media vault ingestion daemon for Aşık Vestel"
+  },
+  "runtime": {
+    "language": "javascript",
+    "version": ">=20.0.0",
+    "package_manager": "npm",
+    "build_command": null,
+    "test_command": "npm test",
+    "lint_command": "npm run lint:harness"
+  },
+  "startup": {
+    "command": "node",
+    "args": ["src/index.js"],
+    "working_dir": ".",
+    "env": {
+      "NODE_ENV": "development"
+    },
+    "readiness": {
+      "type": "process",
+      "config": {
+        "timeout_seconds": 15
+      }
+    }
+  },
+  "services": [
+    {
+      "name": "sqlite",
+      "type": "database",
+      "required": true,
+      "description": "Shared SQLite database using WAL mode for concurrent bot writes and web reads",
+      "connection": {
+        "url_env": "DB_PATH",
+        "default_url": "./clips.db"
+      }
+    }
+  ],
+  "env_vars": {
+    "required": {
+      "DISCORD_BOT_TOKEN": {
+        "purpose": "Discord Bot API Gateway Token",
+        "sensitive": true,
+        "example": "your_bot_token"
+      },
+      "DISCORD_CLIENT_ID": {
+        "purpose": "Application Client ID for REST slash command registration",
+        "sensitive": false,
+        "example": "1389232967271972914"
+      },
+      "DISCORD_GUILD_ID": {
+        "purpose": "Target Discord Guild ID(s) comma separated",
+        "sensitive": false,
+        "example": "1389232967271972914,1061058726137692332"
+      },
+      "DB_PATH": {
+        "purpose": "Path to SQLite clips database",
+        "sensitive": false,
+        "example": "/var/lib/asikvestel/clips.db"
+      },
+      "VAULT_STORAGE_PATH": {
+        "purpose": "Directory storing AES-256-GCM encrypted media blobs",
+        "sensitive": false,
+        "example": "/var/lib/asikvestel/vault"
+      },
+      "VAULT_SECRET_KEY": {
+        "purpose": "64-hex-character secret key for vault encryption",
+        "sensitive": true,
+        "example": "64_hex_characters"
+      },
+      "DB_ENCRYPTION_KEY": {
+        "purpose": "64-hex-character secret key for database field encryption",
+        "sensitive": true,
+        "example": "64_hex_characters"
+      }
+    },
+    "optional": {
+      "WEB_API_URL": {
+        "purpose": "Sister website API URL for chat bridge relay",
+        "sensitive": false,
+        "example": "http://localhost:4000"
+      },
+      "CHAT_BRIDGE_INTERNAL_SECRET": {
+        "purpose": "Shared secret for internal web relay authentication",
+        "sensitive": true,
+        "example": "shared_secret_token"
+      },
+      "ADMIN_DISCORD_IDS": {
+        "purpose": "Comma separated Discord user IDs authorized for /sistem telemetry actions",
+        "sensitive": false,
+        "example": "735152588801966132"
+      }
+    }
+  }
+}

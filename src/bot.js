@@ -21,6 +21,7 @@ const { initVoiceTracker } = require('./vcTracker');
 const { deploySlashCommands } = require('./slashCommands');
 const { runThrottledBackfill } = require('./backfill');
 const { isAuthorizedAdmin, getSystemStats, formatBytes, formatDuration } = require('./systemStats');
+const { initMediaStorageWatchdog, getMediaHostStats } = require('./mediaStorageWatchdog');
 const { initDiscordSpotifyTracker } = require('./discordSpotifyTracker');
 const { chatBridge } = require('./chatBridge');
 const vaultStorage = require('./vaultStorage');
@@ -30,6 +31,7 @@ const {
   createImageEmbed,
   createQuoteEmbed,
   createStatsEmbed,
+  createMediaHostStatsEmbed,
   createSystemPageEmbed,
   createSystemActionRow,
   createSystemEmbed,
@@ -102,6 +104,7 @@ function createBotClient(config) {
   client.once('ready', async () => {
     console.log(`[Bot] Logged in as ${client.user.tag}!`);
     await deploySlashCommands(config);
+    initMediaStorageWatchdog(client, config);
 
     // Efficient bulk sync of guild members with single batch transaction
     for (const guild of client.guilds.cache.values()) {
@@ -502,7 +505,7 @@ function createBotClient(config) {
 
       const response = await interaction.editReply({
         embeds: [initialEmbed],
-        components: [initialRow]
+        components: Array.isArray(initialRow) ? initialRow : [initialRow]
       });
 
       // Interactive component collector for 5 minutes (300,000 ms)
@@ -515,6 +518,7 @@ function createBotClient(config) {
         collector.on('collect', async i => {
           try {
             if (i.customId === 'sys_page_vps') currentPage = 'vps';
+            else if (i.customId === 'sys_page_media') currentPage = 'media';
             else if (i.customId === 'sys_page_web') currentPage = 'web';
             else if (i.customId === 'sys_page_nighty') currentPage = 'nighty';
             else if (i.customId === 'sys_page_mc') currentPage = 'mc';
@@ -537,7 +541,7 @@ function createBotClient(config) {
 
             await i.update({
               embeds: [pageEmbed],
-              components: [pageRow]
+              components: Array.isArray(pageRow) ? pageRow : [pageRow]
             });
           } catch (compErr) {
             console.error('[System Command Component Error]', compErr);
@@ -548,12 +552,54 @@ function createBotClient(config) {
           try {
             const disabledRow = createSystemActionRow(currentPage, true);
             await interaction.editReply({
-              components: [disabledRow]
+              components: Array.isArray(disabledRow) ? disabledRow : [disabledRow]
             }).catch(() => {});
           } catch {}
         });
       } catch (colErr) {
         console.warn('[System Collector Error]', colErr);
+      }
+      return;
+    }
+
+    if (interaction.commandName === 'media-stats') {
+      await interaction.deferReply({ ephemeral: false });
+      let currentStats = getMediaHostStats(config);
+      const embedPayload = createMediaHostStatsEmbed({ stats: currentStats, config });
+
+      const response = await interaction.editReply(embedPayload);
+
+      try {
+        const collector = response.createMessageComponentCollector({
+          filter: i => i.customId === 'media_stats_refresh',
+          time: 300_000
+        });
+
+        collector.on('collect', async i => {
+          try {
+            currentStats = getMediaHostStats(config);
+            const updatedPayload = createMediaHostStatsEmbed({ stats: currentStats, config });
+            await i.update(updatedPayload);
+          } catch (compErr) {
+            console.error('[Media Stats Refresh Error]', compErr);
+          }
+        });
+
+        collector.on('end', async () => {
+          try {
+            const disabledPayload = createMediaHostStatsEmbed({ stats: currentStats, config });
+            if (disabledPayload.components && disabledPayload.components[0]) {
+              disabledPayload.components[0].components.forEach(c => {
+                if (c.data?.custom_id === 'media_stats_refresh') {
+                  c.setDisabled(true);
+                }
+              });
+            }
+            await interaction.editReply(disabledPayload).catch(() => {});
+          } catch {}
+        });
+      } catch (colErr) {
+        console.warn('[Media Stats Collector Error]', colErr);
       }
       return;
     }

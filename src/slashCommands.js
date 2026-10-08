@@ -79,7 +79,11 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('system')
-    .setDescription('Çok sekmeli VPS telemetrisi (Host OS, Web/Bot, Nighty, Minecraft) görüntüler. (Yalnızca @imbarb)'),
+    .setDescription('Çok sekmeli VPS telemetrisi (OS, 5 Domain, PM2, Docker, Pterodactyl) görüntüler. (Yalnızca @imbarb)'),
+
+  new SlashCommandBuilder()
+    .setName('media-stats')
+    .setDescription('Aşık Vestel Medya Sunucusu (R2, Disk, Kullanıcılar) istatistiklerini görüntüler.'),
 
   new SlashCommandBuilder()
     .setName('soz-ekle')

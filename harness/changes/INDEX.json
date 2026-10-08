@@ -1,0 +1,72 @@
+[
+  {
+    "id": "2026-10-08-media-host-storage-and-system-redesign",
+    "title": "Media Host Storage Telemetry & Streamlined /system Command",
+    "status": "completed",
+    "location": "archive",
+    "modules": [
+      "src/bot.js",
+      "src/botEmbeds.js",
+      "src/mediaStorageWatchdog.js",
+      "src/systemStats.js",
+      "src/slashCommands.js"
+    ],
+    "files": [
+      "src/bot.js",
+      "src/botEmbeds.js",
+      "src/mediaStorageWatchdog.js",
+      "src/systemStats.js",
+      "src/slashCommands.js",
+      "scripts/lint-quality.mjs"
+    ],
+    "tags": [
+      "media-host",
+      "storage-watchdog",
+      "cloudflare-r2",
+      "vps-disk",
+      "system-telemetry",
+      "discord-ui"
+    ],
+    "decisions": [],
+    "validation_status": "unknown",
+    "path": "harness/changes/archive/2026-10-08-media-host-storage-and-system-redesign",
+    "updated_at": "2026-10-08"
+  },
+  {
+    "id": "2026-10-08-update-system-command-for-full-vps-telemetry",
+    "title": "Update system command for full VPS telemetry",
+    "status": "completed",
+    "location": "archive",
+    "modules": [
+      "src/systemStats.js",
+      "src/botEmbeds.js",
+      "src/slashCommands.js",
+      "tests/systemStats.test.js"
+    ],
+    "files": [
+      "src/systemStats.js",
+      "src/botEmbeds.js",
+      "src/slashCommands.js",
+      "tests/systemStats.test.js"
+    ],
+    "tags": [
+      "system-telemetry",
+      "vps",
+      "docker",
+      "pm2",
+      "discord-slash-command"
+    ],
+    "decisions": [
+      "- Retain the proven 4-page ActionRow structure (`sys_page_vps`, `sys_page_web`, `sys_page_nighty`, `sys_page_mc`, `sys_page_refresh`) for full Discord UI ergonomics and test compatibility.",
+      "- Dynamically parse Docker containers (`docker ps` & `docker stats`) to automatically detect Vaultwarden, mc-router, and the live Pterodactyl container without fragile hardcoded IDs.",
+      "- Query PM2 processes (`pm2 jlist`) to report memory and uptime for `asikvestel-vault`, `asikvestel-media`, and `asikvestel-bot`.",
+      "- Enrich Page 1 (VPS Host) with Nginx domain routing and listening ports.",
+      "- Enrich Page 2 (Web & Bot) with Media CDN and SQLite WAL metrics.",
+      "- Enrich Page 3 (Docker & Nighty) with Vaultwarden and mc-router stats.",
+      "- Enrich Page 4 (Minecraft & Panel) with Pterodactyl Wings, panel proxy, and backend database telemetry."
+    ],
+    "validation_status": "unknown",
+    "path": "harness/changes/archive/2026-10-08-update-system-command-for-full-vps-telemetry",
+    "updated_at": "2026-10-08"
+  }
+]
