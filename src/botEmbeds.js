@@ -251,7 +251,7 @@ function createMediaHostStatsEmbed({ rawData, stats, config = {} }) {
       {
         name: '🗄️ Veritabanı & Altyapı',
         value:
-          `• **SQLite DB:** \`${data.dbSizeFormatted || '4.00 KB'}\` (\`/var/www/media-host/data/media.db\`)\n` +
+          `• **SQLite DB:** \`${data.dbSizeFormatted || '0 B'}\` (\`${data.dbPath || '/var/lib/asikvestel/media.db'}\`)\n` +
           `• **Toplam İndekslenen Boyut:** \`${mStats.totalBytesFormatted || '0 B'}\`\n` +
           `• **Eşik Takibi:** \`R2 Kotası: < 8.5 GB\` • \`VPS Boş Disk: > %10\``,
         inline: false
@@ -342,7 +342,7 @@ function createSystemPageEmbed({ page = 'vps', stats, formatBytes, formatDuratio
         {
           name: '🗄️ Medya Veritabanı & Altyapı',
           value:
-            `• **SQLite DB:** \`${media.dbSizeFormatted || '4.00 KB'}\` (\`/var/www/media-host/data/media.db\`)\n` +
+            `• **SQLite DB:** \`${media.dbSizeFormatted || '0 B'}\` (\`${media.dbPath || '/var/lib/asikvestel/media.db'}\`)\n` +
             `• **Toplam Medya:** \`${mStats.totalBytesFormatted || '0 B'}\`\n` +
             `• **Eşik Takibi:** \`R2 Kotası: < 8.5 GB\` • \`VPS Boş Disk: > %10\``,
           inline: false

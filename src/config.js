@@ -106,6 +106,7 @@ const config = {
 
   // Storage & Crypto
   get DB_PATH() { return getEnv('DB_PATH', path.resolve(__dirname, '../../clips.db')); },
+  get MEDIA_DB_PATH() { return getEnv('MEDIA_DB_PATH', '/var/lib/asikvestel/media.db'); },
   get DB_ENCRYPTION_KEY() { return getEnv('DB_ENCRYPTION_KEY', 'fallback_default_dev_key_only_for_local_tests_32byte_string!'); },
   get VAULT_STORAGE_DIR() {
     return getEnv('VAULT_STORAGE_DIR', path.resolve(__dirname, '../../data/vault_blobs'));

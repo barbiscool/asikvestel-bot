@@ -15,13 +15,19 @@ const path = require('path');
 const { EmbedBuilder } = require('discord.js');
 const { BOT_COLORS, createGaugeBar } = require('./botEmbeds');
 
-// Flexible SQLite loader: prefers built-in node:sqlite, falls back to better-sqlite3
-let Database;
-try {
-  const sqlite = require('node:sqlite');
-  Database = sqlite.DatabaseSync;
-} catch {
-  Database = require('better-sqlite3');
+/**
+ * Opens SQLite database in read-only mode supporting both node:sqlite and better-sqlite3.
+ */
+function openDatabaseReadOnly(dbPath) {
+  try {
+    const sqlite = require('node:sqlite');
+    if (sqlite && sqlite.DatabaseSync) {
+      return new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    }
+  } catch {}
+
+  const BetterSqlite3 = require('better-sqlite3');
+  return new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true });
 }
 
 let startupTimeout = null;
@@ -54,6 +60,7 @@ function resolveMediaDbPath(config = {}) {
 
   const candidates = [
     process.env.MEDIA_DB_PATH,
+    '/var/lib/asikvestel/media.db',
     '/var/www/media-host/data/media.db',
     path.resolve(__dirname, '../../media-host/data/media.db'),
     path.resolve(__dirname, '../../../media-host/data/media.db')
@@ -65,7 +72,7 @@ function resolveMediaDbPath(config = {}) {
     }
   }
 
-  return candidates[0] || '/var/www/media-host/data/media.db';
+  return candidates[0] || '/var/lib/asikvestel/media.db';
 }
 
 /**
@@ -145,25 +152,55 @@ function getMediaHostStats(config = {}) {
 
   try {
     const stats = fs.statSync(dbPath);
-    result.dbSizeBytes = stats.size;
-    result.dbSizeFormatted = formatBytes(stats.size);
+    let totalDbBytes = stats.size;
+    const walPath = `${dbPath}-wal`;
+    const shmPath = `${dbPath}-shm`;
+    if (fs.existsSync(walPath)) {
+      try { totalDbBytes += fs.statSync(walPath).size; } catch {}
+    }
+    if (fs.existsSync(shmPath)) {
+      try { totalDbBytes += fs.statSync(shmPath).size; } catch {}
+    }
+    result.dbSizeBytes = totalDbBytes;
+    result.dbSizeFormatted = formatBytes(totalDbBytes);
 
-    const db = new Database(dbPath, { readOnly: true });
+    const db = openDatabaseReadOnly(dbPath);
 
     try {
       // 1. Media storage queries
-      const totalMedia = db.prepare('SELECT COUNT(*) as count, COALESCE(SUM(file_size), 0) as total_bytes FROM media').get() || {};
-      const r2Stats = db.prepare("SELECT COUNT(*) as count, COALESCE(SUM(file_size), 0) as r2_bytes FROM media WHERE storage_tier = 'r2'").get() || {};
+      let totalMedia = { count: 0, total_bytes: 0 };
+      let r2Stats = { count: 0, r2_bytes: 0 };
+      try {
+        totalMedia = db.prepare('SELECT COUNT(*) as count, COALESCE(SUM(file_size), 0) as total_bytes FROM media').get() || {};
+        r2Stats = db.prepare("SELECT COUNT(*) as count, COALESCE(SUM(file_size), 0) as r2_bytes FROM media WHERE storage_tier = 'r2'").get() || {};
+      } catch {}
 
       // 2. User & invite queries
-      const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users').get() || {};
-      const bannedUsers = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'banned'").get() || {};
+      let totalUsers = { count: 0 };
+      try {
+        totalUsers = db.prepare('SELECT COUNT(*) as count FROM users').get() || {};
+      } catch {}
+
+      let bannedCount = 0;
+      try {
+        const userColumns = (db.prepare('PRAGMA table_info(users)').all() || []).map(c => c.name);
+        if (userColumns.includes('is_banned') && userColumns.includes('role')) {
+          const res = db.prepare("SELECT COUNT(*) as count FROM users WHERE is_banned = 1 OR role = 'banned'").get();
+          bannedCount = res?.count || 0;
+        } else if (userColumns.includes('is_banned')) {
+          const res = db.prepare("SELECT COUNT(*) as count FROM users WHERE is_banned = 1").get();
+          bannedCount = res?.count || 0;
+        } else if (userColumns.includes('role')) {
+          const res = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'banned'").get();
+          bannedCount = res?.count || 0;
+        }
+      } catch {}
 
       let activeInvitesCount = 0;
       try {
         const inviteColumns = (db.prepare('PRAGMA table_info(invites)').all() || []).map(c => c.name);
         if (inviteColumns.includes('expires_at') && inviteColumns.includes('revoked_at')) {
-          const res = db.prepare("SELECT COUNT(*) as count FROM invites WHERE used_at IS NULL AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP) AND revoked_at IS NULL").get();
+          const res = db.prepare("SELECT COUNT(*) as count FROM invites WHERE used_at IS NULL AND (expires_at IS NULL OR datetime(expires_at) > datetime('now')) AND revoked_at IS NULL").get();
           activeInvitesCount = res?.count || 0;
         } else {
           const res = db.prepare("SELECT COUNT(*) as count FROM invites WHERE used_at IS NULL").get();
@@ -191,7 +228,7 @@ function getMediaHostStats(config = {}) {
         totalBytes: totalMedia.total_bytes || 0,
         totalBytesFormatted: formatBytes(totalMedia.total_bytes || 0),
         userCount: totalUsers.count || 0,
-        bannedCount: bannedUsers.count || 0,
+        bannedCount: bannedCount || 0,
         activeInvites: activeInvitesCount
       };
     } finally {
