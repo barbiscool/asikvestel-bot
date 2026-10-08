@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Environment and sensitive credentials
+.env
+.env.local
+.env.*.local
+
+# Databases & local logs
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.log
+logs/
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Test coverage & temporary artifacts
+coverage/
+tmp/
+temp/
