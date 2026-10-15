@@ -129,9 +129,76 @@ class ChatBridge extends EventEmitter {
       }
     }
 
+    // 5. Decoupled standalone mode: Verify via SQLite discord_users table
+    // Users are strictly upserted into discord_users only during Discord OAuth callback
+    // after auth.js:verifyGuildMember confirms their active membership in tracked guild 1389232967271972914.
+    if (!this.client || typeof this.client.isReady !== 'function' || !this.client.isReady()) {
+      try {
+        const dbUser = getDiscordUser(userId);
+        if (dbUser) {
+          if (!this.memberCache) this.memberCache = new Map();
+          this.memberCache.set(userId, { isMember: true, timestamp: now });
+          return true;
+        }
+      } catch (dbErr) {
+        console.warn('[ChatBridge] Database guild member check warning:', dbErr.message);
+      }
+    }
+
+    // 6. Decoupled standalone mode: Live Discord REST check via BOT_TOKEN
+    const botToken = this.config?.BOT_TOKEN || this.config?.DISCORD_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN;
+    if (botToken && typeof fetch === 'function') {
+      for (const guildId of trackedGuilds) {
+        try {
+          const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${userId}`, {
+            headers: { Authorization: `Bot ${botToken}` }
+          });
+          if (res.ok) {
+            if (!this.memberCache) this.memberCache = new Map();
+            this.memberCache.set(userId, { isMember: true, timestamp: now });
+            return true;
+          }
+        } catch (_) {}
+      }
+    }
+
     if (!this.memberCache) this.memberCache = new Map();
     this.memberCache.set(userId, { isMember: false, timestamp: now });
     return false;
+  }
+
+  _createWebhookAdapter(webhookUrl, targetId) {
+    return {
+      send: async ({ content, username, avatarURL, allowedMentions }) => {
+        const url = webhookUrl + (webhookUrl.includes('?') ? '&' : '?') + 'wait=true';
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content,
+            username,
+            avatar_url: avatarURL,
+            allowed_mentions: allowedMentions
+          })
+        });
+        if (!res.ok) {
+          throw new Error(`Discord Webhook HTTP ${res.status}`);
+        }
+        const raw = await res.json();
+        return {
+          id: raw.id,
+          channelId: raw.channel_id || targetId,
+          content: raw.content,
+          author: {
+            id: raw.author?.id,
+            username: raw.author?.username || username,
+            globalName: raw.author?.global_name || username,
+            displayName: username
+          },
+          createdTimestamp: new Date(raw.timestamp || Date.now()).getTime()
+        };
+      }
+    };
   }
 
   /**
@@ -140,39 +207,127 @@ class ChatBridge extends EventEmitter {
    */
   async getOrCreateWebhook(channelId = null) {
     const targetId = channelId || this.getDefaultChannelId();
-    if (!this.client || !this.client.isReady()) {
-      throw new Error('Discord bot istemcisi henüz hazır değil.');
-    }
-
     const now = Date.now();
     const cached = this.cachedWebhooks.get(targetId);
     if (cached && (now - cached.fetchTime < 600000)) {
       return cached.hook;
     }
 
-    const channel = await this.client.channels.fetch(targetId).catch(() => null);
-    if (!channel || !channel.isTextBased()) {
-      throw new Error(`Hedef metin kanalı (${targetId}) bulunamadı veya erişilemiyor.`);
+    // 1. Direct Webhook URL fallback when running standalone without local Discord client
+    const envWebhook = this.config?.CHAT_WEBHOOK_URL ||
+      process.env.CHAT_WEBHOOK_URL ||
+      (this.config && this.config[`CHAT_WEBHOOK_${targetId}`]) ||
+      (process.env && process.env[`CHAT_WEBHOOK_${targetId}`]);
+
+    if (envWebhook && typeof fetch === 'function') {
+      const hookAdapter = this._createWebhookAdapter(envWebhook, targetId);
+      this.cachedWebhooks.set(targetId, { hook: hookAdapter, fetchTime: now });
+      return hookAdapter;
     }
 
-    const webhooks = await channel.fetchWebhooks().catch(err => {
-      console.error(`[ChatBridge] Webhook listeleme hatası (${targetId}):`, err.message);
-      return null;
-    });
+    // 2. Connected Discord.js client
+    if (this.client && typeof this.client.isReady === 'function' && this.client.isReady()) {
+      const channel = await this.client.channels.fetch(targetId).catch(() => null);
+      if (channel && channel.isTextBased()) {
+        const webhooks = await channel.fetchWebhooks().catch(err => {
+          console.error(`[ChatBridge] Webhook listeleme hatası (${targetId}):`, err.message);
+          return null;
+        });
 
-    let hook = webhooks ? webhooks.find(w => w.name === 'AsikVestel-WebBridge' || (w.owner && w.owner.id === this.client.user?.id)) : null;
+        let hook = webhooks ? webhooks.find(w => w.name === 'AsikVestel-WebBridge' || (w.owner && w.owner.id === this.client.user?.id)) : null;
 
-    if (!hook) {
-      console.log(`[ChatBridge] #${channel.name} (${targetId}) kanalında yeni AsikVestel-WebBridge webhook'u oluşturuluyor...`);
-      hook = await channel.createWebhook({
-        name: 'AsikVestel-WebBridge',
-        avatar: this.client.user?.displayAvatarURL ? this.client.user.displayAvatarURL() : null,
-        reason: 'Aşık Vestel Web-to-Discord Canlı Sohbet Köprüsü'
-      });
+        if (!hook) {
+          console.log(`[ChatBridge] #${channel.name} (${targetId}) kanalında yeni AsikVestel-WebBridge webhook'u oluşturuluyor...`);
+          hook = await channel.createWebhook({
+            name: 'AsikVestel-WebBridge',
+            avatar: this.client.user?.displayAvatarURL ? this.client.user.displayAvatarURL() : null,
+            reason: 'Aşık Vestel Web-to-Discord Canlı Sohbet Köprüsü'
+          });
+        }
+
+        this.cachedWebhooks.set(targetId, { hook, fetchTime: now });
+        return hook;
+      }
     }
 
-    this.cachedWebhooks.set(targetId, { hook, fetchTime: now });
-    return hook;
+    // 3. Standalone mode with Bot Token: query or auto-create webhook via Discord REST API
+    const botToken = this.config?.BOT_TOKEN || this.config?.DISCORD_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN;
+    if (botToken && typeof fetch === 'function') {
+      try {
+        const listRes = await fetch(`https://discord.com/api/v10/channels/${targetId}/webhooks`, {
+          headers: { Authorization: `Bot ${botToken}` }
+        });
+        if (listRes.ok) {
+          const hooks = await listRes.json();
+          let targetHook = Array.isArray(hooks) ? hooks.find(h => h.name === 'AsikVestel-WebBridge' && h.token) : null;
+          if (!targetHook && Array.isArray(hooks) && hooks.length > 0) {
+            targetHook = hooks.find(h => h.token);
+          }
+
+          if (!targetHook) {
+            const createRes = await fetch(`https://discord.com/api/v10/channels/${targetId}/webhooks`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bot ${botToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                name: 'AsikVestel-WebBridge',
+                reason: 'Aşık Vestel Web-to-Discord Canlı Sohbet Köprüsü'
+              })
+            });
+            if (createRes.ok) {
+              targetHook = await createRes.json();
+            }
+          }
+
+          if (targetHook && targetHook.token) {
+            const webhookUrl = `https://discord.com/api/webhooks/${targetHook.id}/${targetHook.token}`;
+            const hookAdapter = this._createWebhookAdapter(webhookUrl, targetId);
+            this.cachedWebhooks.set(targetId, { hook: hookAdapter, fetchTime: now });
+            return hookAdapter;
+          }
+        }
+      } catch (err) {
+        console.warn(`[ChatBridge] Webhook REST araması uyarısı (${targetId}):`, err.message);
+      }
+
+      // 4. Fallback if webhook creation fails: Send message as bot via Discord REST API
+      const fallbackBotAdapter = {
+        send: async ({ content, username, avatarURL, allowedMentions }) => {
+          const res = await fetch(`https://discord.com/api/v10/channels/${targetId}/messages`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bot ${botToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              content: `**[${username || 'Web Üyesi'}]**: ${content}`,
+              allowed_mentions: allowedMentions || { parse: ['users'] }
+            })
+          });
+          if (!res.ok) {
+            throw new Error(`Discord Bot REST HTTP ${res.status}`);
+          }
+          const raw = await res.json();
+          return {
+            id: raw.id,
+            channelId: raw.channel_id || targetId,
+            content: raw.content,
+            author: {
+              id: raw.author?.id,
+              username: username || raw.author?.username,
+              globalName: username,
+              displayName: username
+            },
+            createdTimestamp: new Date(raw.timestamp || Date.now()).getTime()
+          };
+        }
+      };
+      return fallbackBotAdapter;
+    }
+
+    throw new Error('Discord bot istemcisi veya webhook henüz hazır değil.');
   }
 
   /**
@@ -256,11 +411,51 @@ class ChatBridge extends EventEmitter {
     return content;
   }
 
+  // Only our own output (e.g. relayed by the bot) has a numeric createdAt and author.avatarUrl.
+  // Raw Discord REST messages and discord.js Messages (createdAt is a Date) must go through formatting.
+  isAlreadyFormatted(msg) {
+    return Boolean(
+      msg &&
+      msg.id &&
+      (msg.channelId || msg.channel_id) &&
+      typeof msg.createdAt === 'number' &&
+      typeof msg.author?.avatarUrl === 'string'
+    );
+  }
+
+  normalizeFormattedMessage(msg) {
+    const channelId = msg.channelId || msg.channel_id;
+    const author = msg.author || {};
+    return {
+      id: msg.id,
+      channelId: channelId,
+      content: msg.content || '',
+      rawContent: msg.rawContent || msg.content || '',
+      author: {
+        id: author.id,
+        username: author.username || 'Discord Kullanıcısı',
+        displayName: author.displayName || author.globalName || author.global_name || author.username || 'Discord Kullanıcısı',
+        avatarUrl: author.avatarUrl || (author.avatar ? `https://cdn.discordapp.com/avatars/${author.id}/${author.avatar}.png?size=128` : 'https://cdn.discordapp.com/embed/avatars/0.png'),
+        isBot: Boolean(author.isBot || author.bot),
+        isWebhook: Boolean(author.isWebhook || msg.webhookId || msg.webhook_id)
+      },
+      attachments: Array.isArray(msg.attachments) ? msg.attachments : [],
+      embeds: Array.isArray(msg.embeds) ? msg.embeds : [],
+      stickers: Array.isArray(msg.stickers) ? msg.stickers : [],
+      replyTo: msg.replyTo || null,
+      createdAt: Number(msg.createdAt) || (msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now())
+    };
+  }
+
   /**
-   * Formats a Discord.js Message instance into a clean JSON structure for the Web UI.
+   * Formats a Discord.js Message instance or Discord REST JSON into a clean structure for the Web UI.
    */
   formatDiscordMessage(msg) {
     if (!msg) return null;
+
+    if (this.isAlreadyFormatted(msg)) {
+      return this.normalizeFormattedMessage(msg);
+    }
 
     const author = msg.author || {};
     const member = msg.member || {};
@@ -269,20 +464,30 @@ class ChatBridge extends EventEmitter {
     if (typeof author.displayAvatarURL === 'function') {
       avatarUrl = author.displayAvatarURL({ dynamic: true, size: 128 });
     } else if (author.avatar) {
-      avatarUrl = `https://cdn.discordapp.com/avatars/${author.id}/${author.avatar}.png`;
+      const isAnimated = typeof author.avatar === 'string' && author.avatar.startsWith('a_');
+      avatarUrl = `https://cdn.discordapp.com/avatars/${author.id}/${author.avatar}.${isAnimated ? 'gif' : 'png'}?size=128`;
     } else {
       avatarUrl = 'https://cdn.discordapp.com/embed/avatars/0.png';
     }
 
-    const attachments = (msg.attachments && typeof msg.attachments.values === 'function')
-      ? Array.from(msg.attachments.values()).map(a => ({
-          id: a.id,
-          url: a.url,
-          name: a.name || 'dosya',
-          contentType: a.contentType || '',
-          isImage: (a.contentType || '').startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(a.name || '')
-        }))
-      : (Array.isArray(msg.attachments) ? msg.attachments : []);
+    let rawAttachments = [];
+    if (msg.attachments && typeof msg.attachments.values === 'function' && !(msg.attachments instanceof Array)) {
+      rawAttachments = Array.from(msg.attachments.values());
+    } else if (Array.isArray(msg.attachments)) {
+      rawAttachments = msg.attachments;
+    }
+
+    const attachments = rawAttachments.map(a => {
+      const name = a.name || a.filename || 'dosya';
+      const contentType = a.contentType || a.content_type || '';
+      return {
+        id: a.id,
+        url: a.url,
+        name: name,
+        contentType: contentType,
+        isImage: contentType.startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(name)
+      };
+    });
 
     const embeds = (msg.embeds && Array.isArray(msg.embeds))
       ? msg.embeds.map(e => ({
@@ -294,49 +499,47 @@ class ChatBridge extends EventEmitter {
         })).filter(e => e.image || e.thumbnail || e.video || e.url)
       : [];
 
-    const stickers = (msg.stickers && typeof msg.stickers.values === 'function')
-      ? Array.from(msg.stickers.values()).map(s => {
-          const ext = s.formatType === 4 ? 'gif' : 'png';
-          const fallbackUrl = `https://media.discordapp.net/stickers/${s.id}.${ext}?size=160`;
-          return {
-            id: s.id,
-            name: s.name || 'Sticker',
-            formatType: s.formatType,
-            url: s.url || fallbackUrl
-          };
-        })
-      : (Array.isArray(msg.stickers) ? msg.stickers.map(s => {
-          const ext = s.formatType === 4 ? 'gif' : 'png';
-          const fallbackUrl = `https://media.discordapp.net/stickers/${s.id}.${ext}?size=160`;
-          return {
-            id: s.id,
-            name: s.name || 'Sticker',
-            formatType: s.formatType,
-            url: s.url || fallbackUrl
-          };
-        }) : []);
+    let rawStickers = [];
+    if (msg.stickers && typeof msg.stickers.values === 'function' && !(msg.stickers instanceof Array)) {
+      rawStickers = Array.from(msg.stickers.values());
+    } else if (Array.isArray(msg.stickers)) {
+      rawStickers = msg.stickers;
+    }
+
+    const stickers = rawStickers.map(s => {
+      const ext = s.formatType === 4 || s.format_type === 4 ? 'gif' : 'png';
+      const fallbackUrl = `https://media.discordapp.net/stickers/${s.id}.${ext}?size=160`;
+      return {
+        id: s.id,
+        name: s.name || 'Sticker',
+        formatType: s.formatType || s.format_type || 1,
+        url: s.url || fallbackUrl
+      };
+    });
 
     const resolvedContent = this.resolveMentions(msg.content || '', msg);
     const replyTo = this.resolveReplyInfo(msg);
+    const channelId = msg.channelId || msg.channel_id;
+    const createdAt = msg.createdTimestamp || (msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now());
 
     return {
       id: msg.id,
-      channelId: msg.channelId,
+      channelId: channelId,
       content: resolvedContent,
       rawContent: msg.content || '',
       author: {
         id: author.id,
         username: author.username || 'Discord Kullanıcısı',
-        displayName: member.displayName || author.displayName || author.username || 'Discord Kullanıcısı',
+        displayName: member.displayName || author.displayName || author.global_name || author.globalName || author.username || 'Discord Kullanıcısı',
         avatarUrl: avatarUrl,
-        isBot: !!author.bot,
-        isWebhook: !!msg.webhookId
+        isBot: Boolean(author.bot || msg.webhookId || msg.webhook_id || author.isBot),
+        isWebhook: Boolean(msg.webhookId || msg.webhook_id || author.isWebhook)
       },
       attachments: attachments,
       embeds: embeds,
       stickers: stickers,
       replyTo: replyTo,
-      createdAt: msg.createdTimestamp || Date.now()
+      createdAt: createdAt
     };
   }
 
@@ -345,6 +548,24 @@ class ChatBridge extends EventEmitter {
    */
   resolveReplyInfo(msg) {
     if (!msg) return null;
+    if (msg.replyTo) return msg.replyTo;
+
+    // Discord REST API embedded referenced_message
+    if (msg.referenced_message) {
+      const ref = msg.referenced_message;
+      const refAuthor = ref.author || {};
+      let refAvatar = 'https://cdn.discordapp.com/embed/avatars/0.png';
+      if (refAuthor.avatar) {
+        refAvatar = `https://cdn.discordapp.com/avatars/${refAuthor.id}/${refAuthor.avatar}.png?size=64`;
+      }
+      return {
+        id: ref.id,
+        authorName: refAuthor.global_name || refAuthor.displayName || refAuthor.username || 'Discord Kullanıcısı',
+        authorAvatar: refAvatar,
+        content: (ref.content || '').slice(0, 120) || (ref.attachments?.length ? '[Görsel / Medya]' : 'Mesaj'),
+        isMedia: !ref.content && ((ref.attachments && ref.attachments.length > 0) || (ref.stickers && ref.stickers.length > 0))
+      };
+    }
 
     const ref = msg.reference || msg.message_reference;
     if (!ref) return null;
@@ -359,8 +580,9 @@ class ChatBridge extends EventEmitter {
     }
 
     // 2. Check local in-memory channel ringBuffer
-    if (!referencedMsg && msg.channelId) {
-      const ringBuffer = this.getRecentMessagesList(msg.channelId);
+    const targetChannelId = msg.channelId || msg.channel_id;
+    if (!referencedMsg && targetChannelId) {
+      const ringBuffer = this.getRecentMessagesList(targetChannelId);
       const found = ringBuffer?.find(m => m.id === refMessageId);
       if (found) {
         return {
@@ -450,74 +672,94 @@ class ChatBridge extends EventEmitter {
     const ringBuffer = this.getRecentMessagesList(targetId);
     const fetchLimit = Math.min(parseInt(limit, 10) || 20, this.maxRecentMessages);
 
-    if (!this.client || !this.client.isReady()) {
-      return ringBuffer.slice(-fetchLimit);
-    }
+    // 1. Connected Discord.js client
+    if (this.client && typeof this.client.isReady === 'function' && this.client.isReady()) {
+      try {
+        const channel = await this.client.channels.fetch(targetId).catch(() => null);
+        if (channel && channel.isTextBased()) {
+          const rawMessages = await channel.messages.fetch({ limit: fetchLimit });
+          const formatted = Array.from(rawMessages.values())
+            .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+            .map(m => this.formatDiscordMessage(m))
+            .filter(Boolean);
 
-    try {
-      const channel = await this.client.channels.fetch(targetId).catch(() => null);
-      if (!channel || !channel.isTextBased()) {
-        return ringBuffer.slice(-fetchLimit);
+          ringBuffer.length = 0;
+          ringBuffer.push(...formatted.slice(-this.maxRecentMessages));
+          return ringBuffer.slice(-fetchLimit);
+        }
+      } catch (err) {
+        console.warn(`[ChatBridge] Mesaj geçmişi çekilirken uyarı (${targetId}):`, err.message);
       }
-
-      const rawMessages = await channel.messages.fetch({ limit: fetchLimit });
-      const formatted = Array.from(rawMessages.values())
-        .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-        .map(m => this.formatDiscordMessage(m))
-        .filter(Boolean);
-
-      // On page access, refresh channel ring buffer with latest messages (strictly capped at 20)
-      ringBuffer.length = 0;
-      ringBuffer.push(...formatted.slice(-this.maxRecentMessages));
-
-      return ringBuffer.slice(-fetchLimit);
-    } catch (err) {
-      console.warn(`[ChatBridge] Mesaj geçmişi çekilirken uyarı (${targetId}):`, err.message);
-      return ringBuffer.slice(-fetchLimit);
     }
+
+    // 2. Standalone REST mode with Bot Token
+    const botToken = this.config?.BOT_TOKEN || this.config?.DISCORD_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN;
+    if (botToken && typeof fetch === 'function') {
+      try {
+        const res = await fetch(`https://discord.com/api/v10/channels/${targetId}/messages?limit=${fetchLimit}`, {
+          headers: { Authorization: `Bot ${botToken}` }
+        });
+        if (res.ok) {
+          const rawMessages = await res.json();
+          if (Array.isArray(rawMessages)) {
+            const formatted = rawMessages
+              .sort((a, b) => {
+                const timeA = a.createdTimestamp || (a.timestamp ? new Date(a.timestamp).getTime() : 0);
+                const timeB = b.createdTimestamp || (b.timestamp ? new Date(b.timestamp).getTime() : 0);
+                return timeA - timeB;
+              })
+              .map(m => this.formatDiscordMessage(m))
+              .filter(Boolean);
+
+            ringBuffer.length = 0;
+            ringBuffer.push(...formatted.slice(-this.maxRecentMessages));
+            return ringBuffer.slice(-fetchLimit);
+          }
+        }
+      } catch (err) {
+        console.warn(`[ChatBridge] Discord REST mesaj geçmişi çekilirken uyarı (${targetId}):`, err.message);
+      }
+    }
+
+    return ringBuffer.slice(-fetchLimit);
   }
 
   /**
-   * Receives incoming messages from bot's messageCreate event.
-   * Immediately offloads records older than 50 messages from memory.
+   * Receives incoming messages from bot's messageCreate event or internal relay.
+   * Immediately offloads records older than 20 messages from memory.
    */
   handleIncomingMessage(msg) {
-    if (!msg || !this.isChannelSupported(msg.channelId)) {
+    if (!msg) return;
+    const channelId = msg.channelId || msg.channel_id;
+    if (!this.isChannelSupported(channelId)) {
       return;
     }
 
     const formatted = this.formatDiscordMessage(msg);
     if (!formatted) return;
 
-    const ringBuffer = this.getRecentMessagesList(msg.channelId);
+    const ringBuffer = this.getRecentMessagesList(channelId);
 
-    // Check if already in cache
-    if (!ringBuffer.some(m => m.id === formatted.id)) {
-      ringBuffer.push(formatted);
-      if (ringBuffer.length > this.maxRecentMessages) {
-        ringBuffer.splice(0, ringBuffer.length - this.maxRecentMessages);
-      }
+    // The website can get the same message from both REST polling and the bot relay: handle it once.
+    if (ringBuffer.some(m => m.id === formatted.id)) return;
+    ringBuffer.push(formatted);
+    if (ringBuffer.length > this.maxRecentMessages) {
+      ringBuffer.splice(0, ringBuffer.length - this.maxRecentMessages);
     }
 
     // Broadcast to SSE clients
     this.broadcastToSse(formatted);
     this.emit('message', formatted);
 
-    // If configured to relay to external Web API
+    // Bot side only: forward to the website's internal endpoint. The website never sets WEB_API_URL.
     const webApiUrl = this.config?.WEB_API_URL || process.env.WEB_API_URL;
-    if (webApiUrl && typeof fetch === 'function') {
-      const secret = this.config?.CHAT_BRIDGE_INTERNAL_SECRET || this.config?.SESSION_SECRET || process.env.CHAT_BRIDGE_INTERNAL_SECRET;
+    const secret = this.config?.CHAT_BRIDGE_INTERNAL_SECRET || process.env.CHAT_BRIDGE_INTERNAL_SECRET;
+    if (webApiUrl && secret && typeof fetch === 'function') {
       fetch(`${webApiUrl.replace(/\/$/, '')}/api/chat/internal/incoming`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-internal-secret': secret || ''
-        },
+        headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
         body: JSON.stringify({ message: formatted })
-      }).catch(err => {
-        // Silently log failure without crashing
-        // console.warn('[ChatBridge] Web API relay warning:', err.message);
-      });
+      }).catch(err => console.warn('[ChatBridge] Web API relay failed:', err.message));
     }
   }
 
@@ -619,6 +861,7 @@ class ChatBridge extends EventEmitter {
     res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: Date.now() })}\n\n`);
 
     this.sseClients.add(res);
+    this.startSsePolling();
 
     // Heartbeat every 20 seconds to keep connection alive
     const heartbeat = setInterval(() => {
@@ -628,7 +871,59 @@ class ChatBridge extends EventEmitter {
     res.on('close', () => {
       clearInterval(heartbeat);
       this.sseClients.delete(res);
+      if (this.sseClients.size === 0) {
+        this.stopSsePolling();
+      }
     });
+  }
+
+  startSsePolling() {
+    if (this.ssePollTimer) return;
+    const botToken = this.config?.BOT_TOKEN || this.config?.DISCORD_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN;
+    if (!botToken || (this.client && typeof this.client.isReady === 'function' && this.client.isReady())) {
+      return;
+    }
+
+    this.ssePollTimer = setInterval(async () => {
+      if (this.sseClients.size === 0) {
+        this.stopSsePolling();
+        return;
+      }
+      const channels = Object.keys(this.getChannels());
+      for (const chId of channels) {
+        try {
+          const ringBuffer = this.getRecentMessagesList(chId);
+          const newestMsg = ringBuffer[ringBuffer.length - 1];
+          const url = newestMsg?.id
+            ? `https://discord.com/api/v10/channels/${chId}/messages?after=${newestMsg.id}&limit=10`
+            : `https://discord.com/api/v10/channels/${chId}/messages?limit=5`;
+
+          const res = await fetch(url, {
+            headers: { Authorization: `Bot ${botToken}` }
+          });
+          if (!res.ok) continue;
+          const newMsgs = await res.json();
+          if (Array.isArray(newMsgs) && newMsgs.length > 0) {
+            const sorted = newMsgs.sort((a, b) => {
+              const timeA = a.createdTimestamp || (a.timestamp ? new Date(a.timestamp).getTime() : 0);
+              const timeB = b.createdTimestamp || (b.timestamp ? new Date(b.timestamp).getTime() : 0);
+              return timeA - timeB;
+            });
+            for (const raw of sorted) {
+              this.handleIncomingMessage(raw);
+            }
+          }
+        } catch (_) {}
+      }
+    }, 3000);
+    if (this.ssePollTimer.unref) this.ssePollTimer.unref();
+  }
+
+  stopSsePolling() {
+    if (this.ssePollTimer) {
+      clearInterval(this.ssePollTimer);
+      this.ssePollTimer = null;
+    }
   }
 
   broadcastToSse(data) {

@@ -1,4 +1,12 @@
-const { ActivityType } = require('discord.js');
+// Discord ActivityType enum definition (avoids heavy discord.js dependency in web backend)
+const ActivityType = {
+  Game: 0,
+  Streaming: 1,
+  Listening: 2,
+  Watching: 3,
+  Custom: 4,
+  Competing: 5
+};
 const defaultDb = require('./db');
 const config = require('./config');
 
@@ -275,6 +283,7 @@ function getBotClient() {
 }
 
 module.exports = {
+  ActivityType,
   initDiscordSpotifyTracker,
   getDiscordPresenceLiveList,
   handlePresenceUpdate,
