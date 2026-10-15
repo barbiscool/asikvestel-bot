@@ -15,19 +15,10 @@ const path = require('path');
 const { EmbedBuilder } = require('discord.js');
 const { BOT_COLORS, createGaugeBar } = require('./botEmbeds');
 
-/**
- * Opens SQLite database in read-only mode supporting both node:sqlite and better-sqlite3.
- */
-function openDatabaseReadOnly(dbPath) {
-  try {
-    const sqlite = require('node:sqlite');
-    if (sqlite && sqlite.DatabaseSync) {
-      return new sqlite.DatabaseSync(dbPath, { readOnly: true });
-    }
-  } catch {}
+const Database = require('better-sqlite3');
 
-  const BetterSqlite3 = require('better-sqlite3');
-  return new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true });
+function openDatabaseReadOnly(dbPath) {
+  return new Database(dbPath, { readonly: true, fileMustExist: true });
 }
 
 let startupTimeout = null;

@@ -1,9 +1,4 @@
-let DatabaseSync;
-try {
-  DatabaseSync = require('node:sqlite').DatabaseSync;
-} catch (e) {
-  DatabaseSync = require('better-sqlite3');
-}
+const Database = require('better-sqlite3');
 
 const path = require('path');
 const config = require('./config');
@@ -60,7 +55,7 @@ function closeDb() {
 
 function initDb(dbPath = config.DB_PATH) {
   closeDb();
-  dbInstance = new DatabaseSync(dbPath);
+  dbInstance = new Database(dbPath);
   dbInstance.exec('PRAGMA journal_mode = WAL;');
   dbInstance.exec('PRAGMA busy_timeout = 5000;');
 
@@ -431,8 +426,9 @@ function getClips(filters = {}) {
   const countRow = countStmt.get(...params);
   const total = countRow ? countRow.total : 0;
 
-  const limit = parseInt(filters.limit || '20', 10);
-  const page = parseInt(filters.page || '1', 10);
+  // limit/page come straight from the query string; clamp so a request can't pull the whole table or go negative.
+  const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 20, 1), 100);
+  const page = Math.max(parseInt(filters.page, 10) || 1, 1);
   const offset = (page - 1) * limit;
   const sortDir = filters.sort === 'asc' ? 'ASC' : 'DESC';
 
@@ -501,7 +497,7 @@ function getImages(filters = {}) {
     params.push(`%${filters.query}%`, `%${filters.query}%`);
   }
 
-  const limit = parseInt(filters.limit, 10) || 250;
+  const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 250, 1), 250);
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const stmt = db.prepare(`SELECT * FROM images_vault ${whereClause} ORDER BY created_at DESC LIMIT ?`);
   return stmt.all(...params, limit).map(formatImageRow);
@@ -702,30 +698,17 @@ function upsertDiscordUsersBatch(users) {
       updated_at = excluded.updated_at
   `);
 
-  if (typeof db.transaction === 'function') {
-    const insertMany = db.transaction((list) => {
-      let count = 0;
-      for (const u of list) {
-        if (!u.discord_id) continue;
-        const finalDisplayName = u.display_name || u.username || '';
-        stmt.run(u.discord_id, u.username || '', finalDisplayName, u.avatar_url || '', now);
-        count++;
-      }
-      return count;
-    });
-    return insertMany(users);
-  } else {
+  const insertMany = db.transaction((list) => {
     let count = 0;
-    for (const u of users) {
+    for (const u of list) {
       if (!u.discord_id) continue;
       const finalDisplayName = u.display_name || u.username || '';
-      try {
-        stmt.run(u.discord_id, u.username || '', finalDisplayName, u.avatar_url || '', now);
-        count++;
-      } catch (e) {}
+      stmt.run(u.discord_id, u.username || '', finalDisplayName, u.avatar_url || '', now);
+      count++;
     }
     return count;
-  }
+  });
+  return insertMany(users);
 }
 
 function getDiscordUser(discordId) {
@@ -756,66 +739,28 @@ function insertScrobbles(discordId, tracks, defaultSource = 'spotify') {
   `);
 
   let inserted = 0;
-  let inTx = false;
-  if (typeof db.transaction === 'function') {
-    const insertMany = db.transaction((items) => {
-      for (const t of items) {
-        if (!t.track_id || !t.played_at) continue;
-        const existing = checkDupe.get(discordId, t.track_id, t.played_at, t.artist_name || '', t.track_name || '', t.played_at);
-        if (existing) continue;
+  const insertMany = db.transaction((items) => {
+    for (const t of items) {
+      if (!t.track_id || !t.played_at) continue;
+      const existing = checkDupe.get(discordId, t.track_id, t.played_at, t.artist_name || '', t.track_name || '', t.played_at);
+      if (existing) continue;
 
-        const source = t.source || defaultSource;
-        const res = stmt.run(
-          discordId,
-          t.track_id,
-          t.track_name,
-          t.artist_name,
-          t.album_name || '',
-          t.album_art_url || null,
-          t.duration_ms || 0,
-          t.played_at,
-          source
-        );
-        if (res.changes > 0) inserted++;
-      }
-    });
-    insertMany(tracks);
-  } else {
-    try {
-      db.exec('BEGIN');
-      inTx = true;
-    } catch {
-      inTx = false;
+      const source = t.source || defaultSource;
+      const res = stmt.run(
+        discordId,
+        t.track_id,
+        t.track_name,
+        t.artist_name,
+        t.album_name || '',
+        t.album_art_url || null,
+        t.duration_ms || 0,
+        t.played_at,
+        source
+      );
+      if (res.changes > 0) inserted++;
     }
-
-    try {
-      for (const t of tracks) {
-        if (!t.track_id || !t.played_at) continue;
-        const existing = checkDupe.get(discordId, t.track_id, t.played_at, t.artist_name || '', t.track_name || '', t.played_at);
-        if (existing) continue;
-
-        const source = t.source || defaultSource;
-        const res = stmt.run(
-          discordId,
-          t.track_id,
-          t.track_name,
-          t.artist_name,
-          t.album_name || '',
-          t.album_art_url || null,
-          t.duration_ms || 0,
-          t.played_at,
-          source
-        );
-        if (res.changes > 0) inserted++;
-      }
-      if (inTx) db.exec('COMMIT');
-    } catch (err) {
-      if (inTx) {
-        try { db.exec('ROLLBACK'); } catch {}
-      }
-      throw err;
-    }
-  }
+  });
+  insertMany(tracks);
 
   return inserted;
 }
