@@ -112,3 +112,18 @@ test('Media & Vault Extractor: extracts Discord videos, YouTube, Tenor/Klipy GIF
   assert.strictEqual(extractMedia(pureTextMsg).isVideo, false);
   assert.strictEqual(extractVaultItems(pureTextMsg).length, 0);
 });
+
+test('Category parser: catalog keywords with regex characters match literally instead of throwing', () => {
+  const db = require('../src/db');
+  const { refreshParserCatalog, detectGameAndCategory } = require('../src/parser');
+  const realGet = db.getGameCatalog;
+  db.getGameCatalog = () => [{ name: 'C++ Sim', category: 'Diğer Oyunlar', tags: ['c++'], keywords: ['(beta', 'c++'] }];
+  try {
+    refreshParserCatalog();
+    assert.deepStrictEqual(detectGameAndCategory('new c++ clip'), { category: 'Diğer Oyunlar', gameName: 'C++ Sim' });
+    assert.deepStrictEqual(detectGameAndCategory('cxx clip'), { category: 'Genel', gameName: null });
+  } finally {
+    db.getGameCatalog = realGet;
+    refreshParserCatalog();
+  }
+});

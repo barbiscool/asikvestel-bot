@@ -1,4 +1,5 @@
-const path = require('path');
+const dns = require('dns').promises;
+const net = require('net');
 const config = require('./config');
 const { getDb, updateImageVaultBlob, updateClipVaultBlob, formatImageRow, formatClipRow } = require('./db');
 const { isUrlExpired, refreshAttachmentUrls } = require('./cdnRefresher');
@@ -7,23 +8,40 @@ const vaultStorage = require('./vaultStorage');
 // Security: Max allowed payload size in memory (50 MB) to prevent OOM
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 20000;
+const MAX_REDIRECTS = 3;
 
-function isPrivateIpOrForbidden(hostname) {
-  if (!hostname) return true;
-  const lower = hostname.toLowerCase();
-  if (lower === 'localhost' || lower === '127.0.0.1' || lower === '::1' || lower === '0.0.0.0') {
-    return true;
+// Loopback, private, link-local (cloud metadata), CGNAT, multicast/reserved, and IPv6 equivalents.
+const BLOCKED_ADDRESSES = new net.BlockList();
+for (const [addr, prefix] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
+  ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16], ['224.0.0.0', 3]]) {
+  BLOCKED_ADDRESSES.addSubnet(addr, prefix, 'ipv4');
+}
+for (const [addr, prefix] of [['::', 127], ['64:ff9b::', 96], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]]) {
+  BLOCKED_ADDRESSES.addSubnet(addr, prefix, 'ipv6');
+}
+
+// ::ffff:7f00:1 / ::ffff:127.0.0.1 -> 127.0.0.1 (Node versions differ on matching these against IPv4 rules).
+function ipv4FromMapped(address) {
+  const m = address.match(/^::ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/i);
+  if (!m) return null;
+  if (m[1]) return m[1];
+  const hi = parseInt(m[2], 16);
+  const lo = parseInt(m[3], 16);
+  return [hi >> 8, hi & 255, lo >> 8, lo & 255].join('.');
+}
+
+// Checks every address the host resolves to, not just the URL text, so DNS names and
+// alternate IP spellings (0x7f.1, [::ffff:127.0.0.1]) can't reach internal services.
+// shortcut: a DNS answer that changes between this check and fetch's own lookup (rebinding) still gets through.
+async function assertPublicHost(hostname) {
+  const host = hostname.replace(/^\[|\]$/g, '');
+  const addresses = await dns.lookup(host, { all: true, verbatim: true });
+  for (const { address, family } of addresses) {
+    const v4 = family === 6 ? ipv4FromMapped(address) : address;
+    if (v4 ? BLOCKED_ADDRESSES.check(v4, 'ipv4') : BLOCKED_ADDRESSES.check(address, 'ipv6')) {
+      throw new Error(`SSRF blocked: ${hostname} resolves to ${address}`);
+    }
   }
-  // Check private IPv4 ranges: 10.x.x.x, 172.16-31.x.x, 192.168.x.x, 169.254.x.x (AWS/cloud metadata)
-  const parts = lower.split('.').map(p => parseInt(p, 10));
-  if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
-    if (parts[0] === 10) return true;
-    if (parts[0] === 127) return true;
-    if (parts[0] === 169 && parts[1] === 254) return true;
-    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-    if (parts[0] === 192 && parts[1] === 168) return true;
-  }
-  return false;
 }
 
 /**
@@ -35,32 +53,38 @@ async function fetchMediaBuffer(rawUrl) {
     throw new Error('Invalid URL');
   }
 
-  let parsedUrl;
-  try {
-    parsedUrl = new URL(rawUrl);
-  } catch {
-    throw new Error(`Malformed URL: ${rawUrl}`);
-  }
-
-  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-    throw new Error(`Unsupported protocol: ${parsedUrl.protocol}`);
-  }
-
-  // SSRF prevention: reject private/metadata IPs
-  if (isPrivateIpOrForbidden(parsedUrl.hostname)) {
-    throw new Error(`SSRF blocked: forbidden destination ${parsedUrl.hostname}`);
-  }
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
   try {
-    const res = await fetch(rawUrl, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; AsikVestelVault/1.0)'
+    let url = rawUrl;
+    let res;
+    // Follow redirects by hand so every hop gets the same host check.
+    for (let hop = 0; ; hop++) {
+      let parsedUrl;
+      try {
+        parsedUrl = new URL(url);
+      } catch {
+        throw new Error(`Malformed URL: ${url}`);
       }
-    });
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        throw new Error(`Unsupported protocol: ${parsedUrl.protocol}`);
+      }
+      await assertPublicHost(parsedUrl.hostname);
+
+      res = await fetch(parsedUrl, {
+        signal: controller.signal,
+        redirect: 'manual',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; AsikVestelVault/1.0)'
+        }
+      });
+
+      const location = res.status >= 300 && res.status < 400 && res.headers.get('location');
+      if (!location) break;
+      if (hop >= MAX_REDIRECTS) throw new Error('Too many redirects');
+      url = new URL(location, parsedUrl).href;
+    }
 
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -71,14 +95,18 @@ async function fetchMediaBuffer(rawUrl) {
       throw new Error(`File size exceeds limit (${contentLength} > ${MAX_FILE_SIZE_BYTES})`);
     }
 
-    const arrayBuf = await res.arrayBuffer();
-    const buffer = Buffer.from(arrayBuf);
-
-    if (buffer.length > MAX_FILE_SIZE_BYTES) {
-      throw new Error(`Downloaded buffer exceeds limit (${buffer.length} bytes)`);
+    // Count while reading: content-length can be missing or wrong.
+    const chunks = [];
+    let total = 0;
+    for await (const chunk of res.body) {
+      total += chunk.length;
+      if (total > MAX_FILE_SIZE_BYTES) {
+        controller.abort();
+        throw new Error(`Downloaded buffer exceeds limit (${total} bytes)`);
+      }
+      chunks.push(chunk);
     }
-
-    return buffer;
+    return Buffer.concat(chunks);
   } finally {
     clearTimeout(timeout);
   }

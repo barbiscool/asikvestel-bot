@@ -86,6 +86,11 @@ function mapEmojiToCategory(emoji) {
   return getActiveEmojiMap()[emoji] || null;
 }
 
+// Catalog tags/keywords come from the DB (admin input); a stray "(" or "+" must not throw.
+function escapeRegExp(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function detectGameAndCategory(text = '') {
   if (!text) return { category: 'Genel', gameName: null };
   const lower = text.toLowerCase();
@@ -95,7 +100,7 @@ function detectGameAndCategory(text = '') {
   // 1. Tag matching
   for (const game of catalog) {
     for (const tag of (game.tags || [])) {
-      const tagRegex = new RegExp(`(?:#|\\[)${tag}(?:\\b|\\])`, 'i');
+      const tagRegex = new RegExp(`(?:#|\\[)${escapeRegExp(tag)}(?:\\b|\\])`, 'i');
       if (tagRegex.test(lower)) {
         return { category: game.category, gameName: game.name };
       }
@@ -113,7 +118,7 @@ function detectGameAndCategory(text = '') {
   // 3. Keyword matching (must start at word boundary)
   for (const game of catalog) {
     for (const kw of (game.keywords || [])) {
-      const reg = new RegExp(`(?<![\\p{L}\\p{N}])${kw}`, 'iu');
+      const reg = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(kw)}`, 'iu');
       if (reg.test(lower)) {
         return { category: game.category, gameName: game.name };
       }
