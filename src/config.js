@@ -1,5 +1,6 @@
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+// node --test sets NODE_TEST_CONTEXT; tests must never pick up the live token or real DB path.
+if (!process.env.NODE_TEST_CONTEXT) require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 function getEnv(key, defaultValue = undefined) {
   const value = process.env[key];
