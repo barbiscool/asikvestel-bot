@@ -35,7 +35,8 @@ const {
   createSystemPageEmbed,
   createSystemActionRow,
   createSystemEmbed,
-  createStatusAlertEmbed
+  createStatusAlertEmbed,
+  BOT_COLORS
 } = require('./botEmbeds');
 
 function createBotClient(config) {
@@ -271,6 +272,19 @@ function createBotClient(config) {
   // Slash commands interactions
   client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
+    try {
+      await handleCommand(interaction);
+    } catch (err) {
+      console.error(`[Bot] /${interaction.commandName} failed:`, err);
+      const alert = createStatusAlertEmbed({ type: 'error', title: 'Hata', message: 'Komut çalıştırılırken bir hata oluştu.' });
+      const reply = interaction.deferred || interaction.replied
+        ? interaction.editReply(alert)
+        : interaction.reply({ ...alert, ephemeral: true });
+      await reply.catch(() => {});
+    }
+  });
+
+  async function handleCommand(interaction) {
 
     if (interaction.commandName === 'resim-ekle') {
       await interaction.deferReply({ ephemeral: false });
@@ -791,7 +805,7 @@ function createBotClient(config) {
         }));
       }
     }
-  });
+  }
 
   return client;
 }

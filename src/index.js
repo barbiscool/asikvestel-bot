@@ -22,6 +22,10 @@ async function main() {
   // 3. Create and login bot client
   const client = createBotClient(config);
 
+  // Async discord.js handlers that throw would otherwise kill the process on Node 15+.
+  process.on('unhandledRejection', (err) => console.error('[Bot] Unhandled rejection:', err));
+  client.on('error', (err) => console.error('[Bot] Client error:', err));
+
   try {
     await client.login(config.BOT_TOKEN);
     console.log('[Bot Init] Successfully connected to Discord Gateway.');
