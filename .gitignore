@@ -1,25 +1,27 @@
 # Dependencies
 node_modules/
 
-# Environment and sensitive credentials
+# Environment and credentials
 .env
 .env.local
 .env.*.local
 
-# Databases & local logs
+# Databases
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
 *.sqlite
+
+# Logs
 *.log
 logs/
 
-# Operating System files
+# OS files
 .DS_Store
 Thumbs.db
 
-# Test coverage & temporary artifacts
+# Test coverage and temp files
 coverage/
 tmp/
 temp/
