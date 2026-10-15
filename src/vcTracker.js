@@ -131,6 +131,9 @@ function initVoiceTracker(client) {
   client.on('voiceStateUpdate', (oldState, newState) => {
     handleVoiceStateUpdate(oldState, newState);
   });
+
+  // Time is only saved on leave or clean shutdown; flush regularly so a crash loses at most 5 min.
+  setInterval(flushActiveVoiceSessions, 5 * 60 * 1000).unref();
 }
 
 module.exports = {
