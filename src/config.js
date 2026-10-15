@@ -1,5 +1,4 @@
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 function getEnv(key, defaultValue = undefined) {
@@ -11,13 +10,11 @@ function getEnv(key, defaultValue = undefined) {
 }
 
 const config = {
-  PORT: parseInt(getEnv('PORT', '4000'), 10),
   NODE_ENV: getEnv('NODE_ENV', 'development'),
 
   // Discord Bot Credentials
   BOT_TOKEN: getEnv('DISCORD_BOT_TOKEN', ''),
   CLIENT_ID: getEnv('DISCORD_CLIENT_ID', ''),
-  CLIENT_SECRET: getEnv('DISCORD_CLIENT_SECRET', ''),
 
   // Guilds
   GUILD_ID: getEnv('DISCORD_GUILD_ID', '1389232967271972914').split(',')[0]?.trim() || '1389232967271972914',
@@ -44,7 +41,6 @@ const config = {
 
   // Chat channels & routing
   DEFAULT_CHAT_CHANNEL_ID: getEnv('DISCORD_CHAT_CHANNEL_ID', '1072955073421901834'),
-  CHAT_CHANNEL_ID: getEnv('DISCORD_CHAT_CHANNEL_ID', '1072955073421901834'),
   CHAT_CHANNEL_ISTANBUL_ID: getEnv('CHAT_CHANNEL_ISTANBUL_ID', '1072955073421901834'),
   CHAT_CHANNEL_ANKARA_ID: getEnv('CHAT_CHANNEL_ANKARA_ID', '1389232968140062823'),
 
@@ -72,7 +68,6 @@ const config = {
   // Users / Admins / Restrictions
   ADMIN_USERNAME: getEnv('ADMIN_USERNAME', 'imbarb'),
   ADMIN_DISCORD_USER_ID: getEnv('ADMIN_DISCORD_USER_ID', '735152588801966132'),
-  get ADMIN_USER_ID() { return this.ADMIN_DISCORD_USER_ID; },
   BLOCKED_FEATURE_USER_IDS: getEnv('BLOCKED_FEATURE_USER_IDS', '676125827368484933')
     .split(',')
     .map(s => s.trim())
@@ -93,16 +88,7 @@ const config = {
 
   // Web & Auth
   SITE_URL: getEnv('SITE_URL', 'http://localhost:4000'),
-  OAUTH_REDIRECT_URI: getEnv('OAUTH_REDIRECT_URI', 'http://localhost:4000/api/auth/callback'),
   SESSION_SECRET: getEnv('SESSION_SECRET', 'fallback_dev_secret_key_change_in_production'),
-
-  // AI & External APIs
-  GEMINI_API_KEY: getEnv('GEMINI_API_KEY', ''),
-  LASTFM_API_KEY: getEnv('LASTFM_API_KEY', ''),
-  LASTFM_USERNAME: getEnv('LASTFM_USERNAME', 'barb_btw'),
-  SPOTIFY_CLIENT_ID: getEnv('SPOTIFY_CLIENT_ID', ''),
-  SPOTIFY_CLIENT_SECRET: getEnv('SPOTIFY_CLIENT_SECRET', ''),
-  SPOTIFY_REDIRECT_URI: getEnv('SPOTIFY_REDIRECT_URI', 'http://localhost:4000/api/spotify/callback'),
 
   // Storage & Crypto
   get DB_PATH() { return getEnv('DB_PATH', path.resolve(__dirname, '../../clips.db')); },

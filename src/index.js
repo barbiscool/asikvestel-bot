@@ -1,4 +1,3 @@
-require('dotenv').config();
 const config = require('./config');
 const { initDb, closeDb } = require('./db');
 const { createBotClient } = require('./bot');
@@ -16,6 +15,11 @@ async function main() {
   // 2. Validate token
   if (!config.BOT_TOKEN) {
     console.error('[Bot Init] FATAL: DISCORD_BOT_TOKEN is not defined in environment variables or .env!');
+    process.exit(1);
+  }
+  // config.js falls back to a public dev key; never write production records with it.
+  if (!process.env.DB_ENCRYPTION_KEY) {
+    console.error('[Bot Init] FATAL: DB_ENCRYPTION_KEY is not set. It must match the website\'s key.');
     process.exit(1);
   }
 
