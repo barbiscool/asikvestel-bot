@@ -34,10 +34,6 @@ const config = {
     .split(',')
     .map(s => s.trim())
     .filter(Boolean),
-  SCAN_NEW_SERVER_CHANNEL_IDS: getEnv('SCAN_NEW_SERVER_CHANNEL_IDS', '1072955073421901834,1210949927702757447,1200902533573513307')
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean),
 
   // Chat channels & routing
   DEFAULT_CHAT_CHANNEL_ID: getEnv('DISCORD_CHAT_CHANNEL_ID', '1072955073421901834'),
