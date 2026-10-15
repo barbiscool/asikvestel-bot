@@ -16,7 +16,6 @@ const {
   updateImageVaultBlob,
   updateClipVaultBlob
 } = require('./db');
-const { syncPublicStatsFile } = require('./statsSync');
 const { initVoiceTracker } = require('./vcTracker');
 const { deploySlashCommands } = require('./slashCommands');
 const { runThrottledBackfill } = require('./backfill');
@@ -205,7 +204,6 @@ function createBotClient(config) {
       };
 
       const clipResult = insertClip(clipData);
-      syncPublicStatsFile();
       console.log(`[Bot] Archived clip: "${message.id}" by ${clipData.author_name} [${category} / ${gameName || 'N/A'}]`);
 
       // Zero-Plaintext Vault: Asynchronously fetch to RAM and encrypt with AES-256-GCM
@@ -369,7 +367,6 @@ function createBotClient(config) {
       };
 
       const clipResult = insertClip(clipData);
-      syncPublicStatsFile();
 
       if (clipData.media_type === 'video_discord') {
         encryptToVault(clipData.media_url, clipResult, updateClipVaultBlob);
@@ -416,7 +413,6 @@ function createBotClient(config) {
       }
 
       updateClipCategory(messageId, newCat);
-      syncPublicStatsFile();
 
       const alert = createStatusAlertEmbed({
         type: 'success',

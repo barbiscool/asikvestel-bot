@@ -2,7 +2,6 @@ const { Client, GatewayIntentBits, Partials, ChannelType } = require('discord.js
 const config = require('./config');
 const { extractMedia, extractVaultItems, detectGameAndCategory } = require('./parser');
 const { initDb, insertClip, insertImage, updateClipCaption } = require('./db');
-const { syncPublicStatsFile } = require('./statsSync');
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -201,8 +200,6 @@ async function runMediaScanner() {
       console.error(`[MediaScanner] Failed scanning channel ${channelId}:`, err.message);
     }
   }
-
-  syncPublicStatsFile();
 
   console.log('\n======================================================');
   console.log('🎉 [MediaScanner] ALL CHANNELS COMPLETED!');
