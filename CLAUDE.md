@@ -11,7 +11,7 @@ Guidance and operational context for Claude Code working on the standalone Disco
 - **Discord Client:** Discord.js v14 (Node.js CommonJS).
 - **Bot Identity:** `asik vestel#1862` (Bot User ID: `1548341215630589952`).
 - **Primary Guilds:** `1389232967271972914` and `1061058726137692332`.
-- **Production Host:** Ubuntu VPS (`root@62.83.32.164`), deployed to `/var/www/asikvestel-bot/`.
+- **Production Host:** Debian 13 (trixie) VPS (`root@62.83.32.164`), deployed to `/var/www/asikvestel-bot/`.
 - **Process Manager:** PM2 cluster/fork daemon under the name `asikvestel-bot` (PM2 ID: `2`).
 - **Decoupling History:** Decoupled on 2026-10-08 from `AV-WEBSITE-STUDIO/backend` into its own isolated repository to prevent monolith crashes.
 
