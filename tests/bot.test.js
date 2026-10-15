@@ -56,3 +56,24 @@ test('a failing command answers with an error instead of crashing', async () => 
   assert.strictEqual(i.calls.length, 1);
   assert.ok(i.calls[0].embeds, 'error embed sent');
 });
+
+test('duplicate insert does not attach a vault blob to an unrelated row', async () => {
+  const { insertImage, getImageById } = require('../src/db');
+  const { encryptToVault } = require('../src/bot');
+  const img = { user_id: '1', user_name: 'a', title: 't', media_type: 'gif', created_at: 1 };
+  const first = insertImage({ ...img, image_url: 'https://cdn.discordapp.com/a.gif' });
+  insertImage({ ...img, image_url: 'https://cdn.discordapp.com/b.gif' });
+  const dupe = insertImage({ ...img, image_url: 'https://cdn.discordapp.com/a.gif' });
+  assert.strictEqual(dupe.changes, 0);
+
+  const realFetch = global.fetch;
+  let fetched = 0;
+  global.fetch = async () => { fetched++; throw new Error('should not fetch'); };
+  try {
+    assert.strictEqual(encryptToVault('https://cdn.discordapp.com/a.gif', dupe, () => assert.fail('saved')), null);
+  } finally {
+    global.fetch = realFetch;
+  }
+  assert.strictEqual(fetched, 0);
+  assert.strictEqual(getImageById(first.lastInsertRowid).blob_id, null);
+});

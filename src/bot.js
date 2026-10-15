@@ -39,6 +39,17 @@ const {
   BOT_COLORS
 } = require('./botEmbeds');
 
+// Fetch a just-inserted row's media and store it encrypted. Skipped when the insert was
+// ignored as a duplicate: lastInsertRowid then still holds an older, unrelated row's id.
+function encryptToVault(url, insertResult, saveBlobId) {
+  if (!insertResult || !insertResult.changes || !url || !url.startsWith('http')) return null;
+  const rowId = insertResult.lastInsertRowid;
+  return fetchMediaBuffer(url)
+    .then((buf) => vaultStorage.encryptAndSaveBlob(buf))
+    .then(({ blobId }) => saveBlobId(rowId, blobId))
+    .catch((err) => console.warn(`[Bot] Vault encryption failed for row ${rowId}:`, err.message));
+}
+
 function createBotClient(config) {
   // Memory & sweep optimizations for Discord.js v14
   const client = new Client({
@@ -198,18 +209,8 @@ function createBotClient(config) {
       console.log(`[Bot] Archived clip: "${message.id}" by ${clipData.author_name} [${category} / ${gameName || 'N/A'}]`);
 
       // Zero-Plaintext Vault: Asynchronously fetch to RAM and encrypt with AES-256-GCM
-      if (clipData.media_type === 'video_discord' && clipData.media_url && clipData.media_url.startsWith('http')) {
-        (async () => {
-          try {
-            const buf = await fetchMediaBuffer(clipData.media_url);
-            const { blobId } = await vaultStorage.encryptAndSaveBlob(buf);
-            if (clipResult && clipResult.lastInsertRowid) {
-              updateClipVaultBlob(clipResult.lastInsertRowid, blobId);
-            }
-          } catch (vaultErr) {
-            console.warn('[Bot] Failed to auto-encrypt clip to vault:', vaultErr.message);
-          }
-        })();
+      if (clipData.media_type === 'video_discord') {
+        encryptToVault(clipData.media_url, clipResult, updateClipVaultBlob);
       }
     }
 
@@ -238,19 +239,7 @@ function createBotClient(config) {
       console.log(`[Bot] Saved ${item.mediaType.toUpperCase()} from ${authorName} in #${message.channel.name}`);
 
       // Zero-Plaintext Vault: Asynchronously fetch to RAM and encrypt with AES-256-GCM
-      if (item.url && item.url.startsWith('http')) {
-        (async () => {
-          try {
-            const buf = await fetchMediaBuffer(item.url);
-            const { blobId } = await vaultStorage.encryptAndSaveBlob(buf);
-            if (imgResult && imgResult.lastInsertRowid) {
-              updateImageVaultBlob(imgResult.lastInsertRowid, blobId);
-            }
-          } catch (vaultErr) {
-            console.warn('[Bot] Failed to auto-encrypt image to vault:', vaultErr.message);
-          }
-        })();
-      }
+      encryptToVault(item.url, imgResult, updateImageVaultBlob);
     }
   });
 
@@ -308,19 +297,7 @@ function createBotClient(config) {
 
       const cmdResult = insertImage(imageData);
 
-      if (file.url && file.url.startsWith('http')) {
-        (async () => {
-          try {
-            const buf = await fetchMediaBuffer(file.url);
-            const { blobId } = await vaultStorage.encryptAndSaveBlob(buf);
-            if (cmdResult && cmdResult.lastInsertRowid) {
-              updateImageVaultBlob(cmdResult.lastInsertRowid, blobId);
-            }
-          } catch (vaultErr) {
-            console.warn('[Bot] Failed to auto-encrypt slash command image to vault:', vaultErr.message);
-          }
-        })();
-      }
+      encryptToVault(file.url, cmdResult, updateImageVaultBlob);
 
       const embedPayload = createImageEmbed({
         imageData,
@@ -386,18 +363,8 @@ function createBotClient(config) {
       const clipResult = insertClip(clipData);
       syncPublicStatsFile();
 
-      if (clipData.media_type === 'video_discord' && clipData.media_url && clipData.media_url.startsWith('http')) {
-        (async () => {
-          try {
-            const buf = await fetchMediaBuffer(clipData.media_url);
-            const { blobId } = await vaultStorage.encryptAndSaveBlob(buf);
-            if (clipResult && clipResult.lastInsertRowid) {
-              updateClipVaultBlob(clipResult.lastInsertRowid, blobId);
-            }
-          } catch (vaultErr) {
-            console.warn('[Bot] Failed to auto-encrypt slash command clip to vault:', vaultErr.message);
-          }
-        })();
+      if (clipData.media_type === 'video_discord') {
+        encryptToVault(clipData.media_url, clipResult, updateClipVaultBlob);
       }
 
       const embedPayload = createClipEmbed({
@@ -810,4 +777,4 @@ function createBotClient(config) {
   return client;
 }
 
-module.exports = { createBotClient };
+module.exports = { createBotClient, encryptToVault };
