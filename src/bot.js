@@ -250,12 +250,13 @@ function createBotClient(config) {
       try { await reaction.fetch(); } catch (e) { return; }
     }
 
-    const emojiName = reaction.emoji.name;
-    const mappedCategory = mapEmojiToCategory(emojiName);
-    if (mappedCategory) {
-      updateClipCategory(reaction.message.id, mappedCategory);
-      console.log(`[Bot] Reaction updated clip ${reaction.message.id} -> ${mappedCategory}`);
-    }
+    const mappedCategory = mapEmojiToCategory(reaction.emoji.name);
+    if (!mappedCategory) return;
+    // Same rule as /kategori-degistir minus mods: otherwise anyone reacting 😂 turns a clip into Meme.
+    const clip = getClipByMessageId(reaction.message.id);
+    if (!clip || (clip.author_id !== user.id && !isAuthorizedAdmin(user, config))) return;
+    updateClipCategory(reaction.message.id, mappedCategory);
+    console.log(`[Bot] Reaction updated clip ${reaction.message.id} -> ${mappedCategory}`);
   });
 
   // Slash commands interactions

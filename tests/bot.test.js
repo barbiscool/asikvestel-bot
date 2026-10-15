@@ -77,3 +77,20 @@ test('duplicate insert does not attach a vault blob to an unrelated row', async 
   assert.strictEqual(fetched, 0);
   assert.strictEqual(getImageById(first.lastInsertRowid).blob_id, null);
 });
+
+test('emoji reactions only recategorize a clip for its author or the admin', async () => {
+  const { insertClip, getClipByMessageId } = require('../src/db');
+  insertClip({
+    message_id: 'm1', channel_id: 'c', author_id: 'author', author_name: 'a', category: 'Valorant',
+    media_type: 'video_discord', media_url: 'https://cdn.discordapp.com/m1.mp4', message_url: 'u', created_at: 1
+  });
+  const client = createBotClient({ BOT_TOKEN: '', ADMIN_DISCORD_USER_ID: ADMIN_ID });
+  const react = (userId) => Promise.all(client.listeners('messageReactionAdd').map((fn) =>
+    fn({ partial: false, emoji: { name: '😂' }, message: { id: 'm1' } }, { id: userId, bot: false })));
+
+  await react('stranger');
+  assert.strictEqual(getClipByMessageId('m1').category, 'Valorant');
+  await react('author');
+  assert.strictEqual(getClipByMessageId('m1').category, 'Meme');
+  client.removeAllListeners();
+});
