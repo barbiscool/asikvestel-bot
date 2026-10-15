@@ -5,26 +5,11 @@ const { execSync } = require('child_process');
 const { getMediaHostStats } = require('./mediaStorageWatchdog');
 
 /**
- * Checks whether the invoking Discord user is authorized to run admin commands.
- * Strictly limited to Discord username 'imbarb' or matching configured admin credentials.
+ * Admin commands are for the configured admin's Discord ID only. Usernames can be
+ * changed and re-registered by someone else, so they are never trusted.
  */
 function isAuthorizedAdmin(user, config = {}) {
-  if (!user) return false;
-
-  if (user.id === '735152588801966132' || (config.ADMIN_DISCORD_USER_ID && user.id === config.ADMIN_DISCORD_USER_ID)) {
-    return true;
-  }
-
-  const username = (user.username || '').toLowerCase().trim();
-  if (username === 'imbarb') {
-    return true;
-  }
-
-  if (config.ADMIN_USERNAME && username === config.ADMIN_USERNAME.toLowerCase().trim()) {
-    return true;
-  }
-
-  return false;
+  return !!user && user.id === (config.ADMIN_DISCORD_USER_ID || '735152588801966132');
 }
 
 /**

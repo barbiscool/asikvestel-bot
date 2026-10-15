@@ -627,11 +627,7 @@ function createBotClient(config) {
 
     if (interaction.commandName === 'feature') {
       const adminId = config.ADMIN_DISCORD_USER_ID || '735152588801966132';
-      const isBarb = interaction.user.id === adminId ||
-                     interaction.user.id === '735152588801966132' ||
-                     isAuthorizedAdmin(interaction.user, config);
-
-      if (!isBarb) {
+      if (!isAuthorizedAdmin(interaction.user, config)) {
         return interaction.reply({
           ...createStatusAlertEmbed({
             type: 'error',
@@ -722,12 +718,7 @@ function createBotClient(config) {
     }
 
     if (interaction.commandName === 'oyun-ekle') {
-      const adminId = config.ADMIN_DISCORD_USER_ID || '735152588801966132';
-      const isBarb = interaction.user.id === adminId ||
-                     interaction.user.id === '735152588801966132' ||
-                     isAuthorizedAdmin(interaction.user, config);
-
-      if (!isBarb) {
+      if (!isAuthorizedAdmin(interaction.user, config)) {
         return interaction.reply({
           ...createStatusAlertEmbed({
             type: 'error',

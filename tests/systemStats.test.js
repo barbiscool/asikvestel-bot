@@ -15,9 +15,9 @@ test('System Stats: admin authorization, telemetry metric collection, and Discor
   const config = { ADMIN_DISCORD_USER_ID: '9876543210' };
 
   // 1. Admin authorization checks
-  assert.strictEqual(isAuthorizedAdmin({ username: 'imbarb', id: '111' }, config), true);
-  assert.strictEqual(isAuthorizedAdmin({ username: 'ImBarb', id: '222' }, config), true);
-  assert.strictEqual(isAuthorizedAdmin({ username: 'IMBARB', id: '333' }, config), true);
+  // Username alone must never grant admin: usernames can be re-registered.
+  assert.strictEqual(isAuthorizedAdmin({ username: 'imbarb', id: '111' }, config), false);
+  assert.strictEqual(isAuthorizedAdmin({ username: 'x', id: '9876543210' }, config), true);
   assert.strictEqual(isAuthorizedAdmin({ username: 'random_name', id: '735152588801966132' }, { ADMIN_DISCORD_USER_ID: '735152588801966132' }), true);
   assert.strictEqual(isAuthorizedAdmin({ username: 'babanız', id: '735152588801966132' }, { ADMIN_DISCORD_USER_ID: '735152588801966132' }), true);
   assert.strictEqual(isAuthorizedAdmin({ username: 'somebody_else', id: '444' }, config), false);
