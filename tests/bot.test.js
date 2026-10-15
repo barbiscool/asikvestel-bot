@@ -102,3 +102,11 @@ test('/clip rejects an attachment that is not a video', async () => {
   assert.strictEqual(i.calls.length, 1);
   assert.match(i.calls[0].embeds[0].data.title, /Geçersiz Medya/);
 });
+
+test('/resim-ekle rejects a file that is not an image', async () => {
+  const i = fakeInteraction('resim-ekle', { strings: { baslik: 't' } });
+  i.options.getAttachment = () => ({ id: 'a2', name: 'x.exe', contentType: 'application/octet-stream', url: 'https://cdn.discordapp.com/x.exe' });
+  await dispatch(i);
+  assert.strictEqual(i.calls.length, 1);
+  assert.match(i.calls[0].embeds[0].data.title, /Geçersiz Medya/);
+});

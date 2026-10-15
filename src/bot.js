@@ -283,7 +283,16 @@ function createBotClient(config) {
       const title = interaction.options.getString('baslik');
       const category = interaction.options.getString('kategori') || 'Meme';
 
-      const isGif = (file.name || '').toLowerCase().endsWith('.gif') || (file.contentType || '').includes('gif');
+      // Same image/GIF check as live messages, so arbitrary files don't land in the image vault.
+      const [item] = extractVaultItems({ attachments: [file] });
+      if (!item) {
+        return interaction.editReply(createStatusAlertEmbed({
+          type: 'error',
+          title: 'Geçersiz Medya',
+          message: 'Lütfen bir görsel veya GIF dosyası (PNG/JPG/WEBP/GIF) yükleyin.'
+        }));
+      }
+      const isGif = item.mediaType === 'gif';
       const imageData = {
         user_id: interaction.user.id,
         user_name: interaction.member ? interaction.member.displayName : interaction.user.username,
