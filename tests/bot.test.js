@@ -94,3 +94,11 @@ test('emoji reactions only recategorize a clip for its author or the admin', asy
   assert.strictEqual(getClipByMessageId('m1').category, 'Meme');
   client.removeAllListeners();
 });
+
+test('/clip rejects an attachment that is not a video', async () => {
+  const i = fakeInteraction('clip', { strings: { kategori: 'Genel' } });
+  i.options.getAttachment = () => ({ id: 'a1', name: 'notes.pdf', contentType: 'application/pdf', url: 'https://cdn.discordapp.com/notes.pdf' });
+  await dispatch(i);
+  assert.strictEqual(i.calls.length, 1);
+  assert.match(i.calls[0].embeds[0].data.title, /Geçersiz Medya/);
+});

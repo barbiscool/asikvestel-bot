@@ -321,17 +321,15 @@ function createBotClient(config) {
       let mediaUrl = '';
       let attachmentId = null;
 
-      if (file) {
-        mediaType = 'video_discord';
-        mediaUrl = file.url;
-        attachmentId = file.id;
-      } else if (contentUrl) {
-        const fakeMsg = { content: contentUrl, attachments: new Map() };
-        const extracted = extractMedia(fakeMsg);
-        if (extracted.isVideo) {
-          mediaType = extracted.mediaType;
-          mediaUrl = extracted.url;
-        }
+      // Same video check as live messages, so a zip or PDF can't be archived as a clip.
+      const extracted = extractMedia({
+        content: file ? '' : (contentUrl || ''),
+        attachments: new Map(file ? [[file.id, file]] : [])
+      });
+      if (extracted.isVideo) {
+        mediaType = extracted.mediaType;
+        mediaUrl = extracted.url;
+        attachmentId = extracted.attachmentId;
       }
 
       if (mediaType === 'none') {
