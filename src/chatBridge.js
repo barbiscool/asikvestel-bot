@@ -90,17 +90,15 @@ class ChatBridge extends EventEmitter {
       return this._isMemberOverride(userId);
     }
 
-    // 3. Check in-memory short-term verification cache (2-minute TTL)
+    // 3. Check in-memory short-term verification cache (30-second TTL)
     const now = Date.now();
     const cached = this.memberCache?.get(userId);
-    if (cached && (now - cached.timestamp < 120000)) {
+    if (cached && (now - cached.timestamp < 30000)) {
       return cached.isMember;
     }
 
-    const trackedGuilds = [
-      this.config?.AUTH_GUILD_ID || '1389232967271972914',
-      this.config?.AV2_GUILD_ID || '1061058726137692332'
-    ];
+    // Only the Aşık Vestel server (1389232967271972914) grants access.
+    const trackedGuilds = [this.config?.AUTH_GUILD_ID || '1389232967271972914'];
 
     // 4. Live Discord Bot Client Verification across tracked guilds
     if (this.client && typeof this.client.isReady === 'function' && this.client.isReady()) {
@@ -129,23 +127,7 @@ class ChatBridge extends EventEmitter {
       }
     }
 
-    // 5. Decoupled standalone mode: Verify via SQLite discord_users table
-    // Users are strictly upserted into discord_users only during Discord OAuth callback
-    // after auth.js:verifyGuildMember confirms their active membership in tracked guild 1389232967271972914.
-    if (!this.client || typeof this.client.isReady !== 'function' || !this.client.isReady()) {
-      try {
-        const dbUser = getDiscordUser(userId);
-        if (dbUser) {
-          if (!this.memberCache) this.memberCache = new Map();
-          this.memberCache.set(userId, { isMember: true, timestamp: now });
-          return true;
-        }
-      } catch (dbErr) {
-        console.warn('[ChatBridge] Database guild member check warning:', dbErr.message);
-      }
-    }
-
-    // 6. Decoupled standalone mode: Live Discord REST check via BOT_TOKEN
+    // 5. Decoupled standalone mode: live Discord REST check via BOT_TOKEN
     const botToken = this.config?.BOT_TOKEN || this.config?.DISCORD_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN;
     if (botToken && typeof fetch === 'function') {
       for (const guildId of trackedGuilds) {

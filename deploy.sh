@@ -26,6 +26,7 @@ OLD_DIR="/var/www/asikvestel-bot"
 # paths relative to itself, which in a release folder would be an empty
 # per-release dir that gets deleted with the release.
 NEED_ENV="DB_PATH VAULT_STORAGE_DIR"
+SMOKE=""                  # run locally from the repo root after a successful deploy (no tokens, read-only); empty = skip
 # ----------------------------------------------------------------------------
 
 VPS="root@62.83.32.164"
@@ -162,6 +163,14 @@ pm2 save >/dev/null
 ls -1dt "$APP_BASE"/releases/*/ | tail -n +$((KEEP + 1)) | xargs -r rm -rf
 echo "Deployed $sha; now running \$(readlink "$APP_BASE/current")"
 EOF
+
+  if [ "$DRY_RUN" -eq 0 ] && [ -n "$SMOKE" ]; then
+    log "Smoke test (local, read-only): $SMOKE"
+    if ! (cd "$REPO" && eval "$SMOKE"); then
+      echo "SMOKE TEST FAILED: the release is live. Look at the output above; './deploy.sh rollback' undoes it." >&2
+      exit 1
+    fi
+  fi
 }
 
 cmd_rollback() {
