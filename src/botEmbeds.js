@@ -179,7 +179,17 @@ function createStatsEmbed({ stats, config }) {
   return { embeds: [embed], components: [row] };
 }
 
-const GROUP_ICONS = { docker: '🐳', pm2: '📦', systemd: '⚙️', session: '👤' };
+const GROUP_KINDS = { docker: 'Docker', pm2: 'PM2', systemd: 'Servis', session: 'Oturum' };
+
+/**
+ * Load marker for a process group: red at 10% of RAM or 50% of a core, amber at 3% or 10%.
+ */
+function loadMarker(group, totalBytes) {
+  const ramShare = totalBytes ? (group.rssBytes / totalBytes) * 100 : 0;
+  if (ramShare >= 10 || group.cpu >= 50) return '🔴';
+  if (ramShare >= 3 || group.cpu >= 10) return '🟠';
+  return '🟢';
+}
 
 /**
  * Joins lines into chunks that fit one embed field (max 1024 characters).
@@ -482,8 +492,8 @@ function createSystemPageEmbed({ page = 'vps', stats, formatBytes, formatDuratio
   if (worst > 90) embedColor = BOT_COLORS.DANGER;
   else if (worst > 75) embedColor = BOT_COLORS.AMBER;
 
-  const top = (stats.processGroups || []).slice(0, 8).map((g, i) =>
-    `\`${i + 1}.\` ${GROUP_ICONS[g.kind] || '▪️'} **${g.label}** — \`${fb(g.rssBytes)}\` • CPU \`${g.cpu.toFixed(1)}%\``
+  const top = (stats.processGroups || []).slice(0, 8).map((g) =>
+    `${loadMarker(g, stats.memory?.totalBytes)} **${g.label}** — \`${fb(g.rssBytes)}\` • CPU \`${g.cpu.toFixed(1)}%\` • ${GROUP_KINDS[g.kind] || g.kind}`
   );
 
   return new EmbedBuilder()

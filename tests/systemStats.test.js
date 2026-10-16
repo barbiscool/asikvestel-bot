@@ -283,7 +283,11 @@ test('System Stats: multi-page telemetry (vps, media, web, docker, services) and
 
   // The overview ranks all groups by RAM
   const topEmbed = createSystemPageEmbed({ page: 'vps', stats: mockDetailedStats, formatBytes: fb, formatDuration: fd });
-  assert.ok(topEmbed.data.fields.some(f => f.name.includes('En Çok') && f.value.includes('Nighty Selfbot')));
+  const topField = topEmbed.data.fields.find(f => f.name.includes('En Çok'));
+  assert.ok(topField.value.includes('Nighty Selfbot'));
+  // 900 MB of 16 GB is ~5.5% of RAM -> amber; 80 MB is green. The marker follows load, not type.
+  assert.ok(topField.value.includes('🟠 **Nighty Selfbot**'));
+  assert.ok(topField.value.includes('🟢 **Pterodactyl Wings**'));
 
   // 8. ActionRow validation (2-tier layout)
   const rows = createSystemActionRow('services', false);
