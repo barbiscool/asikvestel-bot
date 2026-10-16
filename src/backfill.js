@@ -1,4 +1,4 @@
-const { extractMedia, detectCategory, detectGameAndCategory } = require('./parser');
+const { extractMedia, detectGameAndCategory } = require('./parser');
 const { insertClip } = require('./db');
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));

@@ -1,18 +1,11 @@
-const { Client, GatewayIntentBits, Partials, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const config = require('./config');
 const { extractMedia, extractVaultItems, detectGameAndCategory } = require('./parser');
 const { initDb, insertClip, insertImage, updateClipCaption } = require('./db');
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-const TARGET_CHANNELS = (config.MEDIA_SCAN_CHANNEL_IDS && config.MEDIA_SCAN_CHANNEL_IDS.length > 0)
-  ? config.MEDIA_SCAN_CHANNEL_IDS
-  : [
-      '1508809916905685224',
-      '1389232968140062823',
-      '1210949927702757447',
-      '1072955073421901834'
-    ];
+const TARGET_CHANNELS = config.MEDIA_SCAN_CHANNEL_IDS;
 
 const MAX_MESSAGES_PER_CHANNEL = 10000;
 

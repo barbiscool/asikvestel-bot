@@ -1,12 +1,11 @@
 const { Client, GatewayIntentBits, Partials, Options } = require('discord.js');
-const { detectCategory, detectGameAndCategory, mapEmojiToCategory, extractMedia, extractVaultItems, refreshParserCatalog } = require('./parser');
+const { detectGameAndCategory, mapEmojiToCategory, extractMedia, extractVaultItems, refreshParserCatalog } = require('./parser');
 const {
   insertClip,
   updateClipCategory,
   getClipByMessageId,
   insertImage,
   getStats,
-  upsertDiscordUser,
   upsertDiscordUsersBatch,
   insertQuote,
   insertGameCatalog,
@@ -33,7 +32,6 @@ const {
   createMediaHostStatsEmbed,
   createSystemPageEmbed,
   createSystemActionRow,
-  createSystemEmbed,
   createStatusAlertEmbed,
   BOT_COLORS
 } = require('./botEmbeds');

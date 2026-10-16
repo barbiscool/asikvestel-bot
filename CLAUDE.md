@@ -39,3 +39,25 @@ Discord bot for Aşık Vestel. Shared context (services, VPS, deploys, data rule
 - `ssh`, `scp`, `./deploy.sh` and `bash deploy.sh` always ask the user first.
 - A PostToolUse hook warns when an edited shared module differs from its website twin. Its list still names `statsSync.js` and doesn't include `db.js`, so check `db.js` by hand (`cmp src/db.js ../website/backend/src/db.js`).
 - `gh` isn't installed: no PRs. Push only with the user's OK.
+
+## Code map (`src/`)
+
+Entry: `index.js` (init DB, check `DISCORD_BOT_TOKEN` and `DB_ENCRYPTION_KEY`, login, SIGINT/SIGTERM flush) -> `bot.js` `createBotClient`. PM2 app `asikvestel-bot` (`ecosystem.config.js`, 350M restart limit).
+
+| Module | Role |
+| --- | --- |
+| `bot.js` | Discord events (`messageCreate`, `messageReactionAdd`, `interactionCreate`, `guildMemberUpdate`, `guildCreate`), `encryptToVault`, wires everything below |
+| `slashCommands.js` | `/resim-ekle`, `/clip`, `/sync-gecmis`, `/arsiv-durum`, `/system`, `/media-stats`, `/soz-ekle`, `/feature`, `/oyun-ekle`; `deploySlashCommands` (also run on `guildCreate`) |
+| `botEmbeds.js` | All embed/row builders (clips, images, stats, system, alerts) |
+| `systemStats.js`, `mediaStorageWatchdog.js` | Admin-only host stats (Docker/PM2/systemd) and media-host disk alerts; the watchdog reads `MEDIA_DB_PATH` read-only |
+| `vcTracker.js` | Voice-channel time tracking; `flushActiveVoiceSessions` runs on shutdown |
+| `backfill.js` | Throttled history backfill, run by `/sync-gecmis` |
+| `scanMediaAndGifs.js` | Manual one-off scanner: `node src/scanMediaAndGifs.js` (channels from `MEDIA_SCAN_CHANNEL_IDS`). Not started by the bot |
+| `config.js` | Env loading; skips `.env` under `node --test`. Falls back to a public dev key, so `index.js` refuses to start without `DB_ENCRYPTION_KEY` |
+| Shared (see above) | `db.js` (1.5k lines, schema + queries), `chatBridge.js`, `parser.js`, `vaultWorker.js`, `vaultStorage.js`, `crypto.js`, `cdnRefresher.js`, `discordSpotifyTracker.js`, `dynamicDataDefaults.js` |
+
+## Habits
+
+- Before deleting an export, grep `src/` and `tests/`; some exports exist only for tests (e.g. `botEmbeds.createSystemEmbed`, `systemStats.readDockerContainers`).
+- Node 20 isn't installed locally and there is no Node image in Docker. To check a change, compare `npm test` totals before and after (on Node 26 the 8 DB-backed tests fail either way).
+- Local `.env` exists and is gitignored; never print it.

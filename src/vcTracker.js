@@ -108,15 +108,6 @@ function flushActiveVoiceSessions() {
   return totalFlushedSeconds;
 }
 
-function getInFlightSeconds() {
-  const now = Date.now();
-  let inFlight = 0;
-  for (const session of activeVoiceSessions.values()) {
-    inFlight += Math.max(0, Math.floor((now - session.joinedAt) / 1000));
-  }
-  return inFlight;
-}
-
 function initVoiceTracker(client) {
   if (!client) return;
 
@@ -140,8 +131,6 @@ module.exports = {
   TRACKED_GUILDS,
   activeVoiceSessions,
   handleVoiceStateUpdate,
-  scanActiveVoiceMembers,
   flushActiveVoiceSessions,
-  getInFlightSeconds,
   initVoiceTracker
 };

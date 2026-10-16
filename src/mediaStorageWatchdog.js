@@ -364,7 +364,6 @@ function stopMediaStorageWatchdog() {
 module.exports = {
   formatBytes,
   readHostDiskSpace,
-  resolveMediaDbPath,
   getMediaHostStats,
   checkAndAlertStorage,
   initMediaStorageWatchdog,
