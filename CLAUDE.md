@@ -4,7 +4,7 @@ Discord bot for Aşık Vestel. Shared context (services, VPS, deploys, data rule
 
 ## Testing
 
-- Tests need **Node 20** (what the VPS runs). `better-sqlite3` 11 doesn't build on newer local Node, and `db.js` has no fallback driver, so `npm test` on Node 26 fails the DB tests.
+- Tests need **Node 20** (what the VPS runs). `better-sqlite3` 11 doesn't build on newer local Node, and `db.js` has no fallback driver, so `npm test` on Node 26 fails the DB tests (see Habits for how to run on Node 20).
 - `node --test` sets `NODE_TEST_CONTEXT`; `src/config.js` then skips `.env`, so tests never see the live token or the real DB path. Keep it that way.
 
 ## Shared modules
@@ -48,8 +48,8 @@ Entry: `index.js` (init DB, check `DISCORD_BOT_TOKEN` and `DB_ENCRYPTION_KEY`, l
 | --- | --- |
 | `bot.js` | Discord events (`messageCreate`, `messageReactionAdd`, `interactionCreate`, `guildMemberUpdate`, `guildCreate`), `encryptToVault`, wires everything below |
 | `slashCommands.js` | `/resim-ekle`, `/clip`, `/sync-gecmis`, `/arsiv-durum`, `/system`, `/media-stats`, `/soz-ekle`, `/feature`, `/oyun-ekle`; `deploySlashCommands` (also run on `guildCreate`) |
-| `botEmbeds.js` | All embed/row builders (clips, images, stats, system, alerts) |
-| `systemStats.js`, `mediaStorageWatchdog.js` | Admin-only host stats (Docker/PM2/systemd) and media-host disk alerts; the watchdog reads `MEDIA_DB_PATH` read-only |
+| `botEmbeds.js` | All embed/row builders (clips, images, stats, system, alerts). `/system` has 5 pages: `vps` (overview + top RAM users), `media`, `web` (PM2 apps), `docker` (every container), `services` (everything else, from `systemStats.processGroups`) |
+| `systemStats.js`, `mediaStorageWatchdog.js` | Admin-only host stats. `processGroups` buckets every process by cgroup (container, PM2 app, systemd unit, SSH session) with Turkish display names (`UNIT_LABELS`, `PM2_LABELS`, `containerLabel`); add a name there when a new service appears on the VPS. Docker/PM2/systemd and media-host disk alerts; the watchdog reads `MEDIA_DB_PATH` read-only |
 | `vcTracker.js` | Voice-channel time tracking; `flushActiveVoiceSessions` runs on shutdown |
 | `backfill.js` | Throttled history backfill, run by `/sync-gecmis` |
 | `scanMediaAndGifs.js` | Manual one-off scanner: `node src/scanMediaAndGifs.js` (channels from `MEDIA_SCAN_CHANNEL_IDS`). Not started by the bot |
@@ -59,5 +59,5 @@ Entry: `index.js` (init DB, check `DISCORD_BOT_TOKEN` and `DB_ENCRYPTION_KEY`, l
 ## Habits
 
 - Before deleting an export, grep `src/` and `tests/`; some exports exist only for tests (e.g. `botEmbeds.createSystemEmbed`, `systemStats.readDockerContainers`).
-- Node 20 isn't installed locally and there is no Node image in Docker. To check a change, compare `npm test` totals before and after (on Node 26 the 8 DB-backed tests fail either way).
+- Local Node is 26, but `node_modules/better-sqlite3` is built for Node 20 (ABI 115) and v11 won't compile on 26, so 8 DB tests fail there with `ERR_DLOPEN_FAILED`. Run the suite on Node 20: `npm i --prefix /tmp/node20 node-linux-x64@20.20.2` (the `node@20` package and `npx node@20` don't work: install scripts are blocked and npx keeps the system node), then `/tmp/node20/node_modules/node-linux-x64/bin/node --test tests/*.test.js`. All 35 pass there.
 - Local `.env` exists and is gitignored; never print it.

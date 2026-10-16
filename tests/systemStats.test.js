@@ -77,7 +77,7 @@ test('System Stats: admin authorization, telemetry metric collection, and Discor
   assert.ok(fieldTitles.some(t => t.includes('Bot / Node')));
 });
 
-test('System Stats: multi-page telemetry (vps, web, nighty, minecraft) and ActionRow buttons', () => {
+test('System Stats: multi-page telemetry (vps, media, web, docker, services) and ActionRow buttons', () => {
   const { createSystemPageEmbed, createSystemActionRow, createGaugeBar } = require('../src/botEmbeds');
 
   // 1. Gauge bar generation
@@ -237,11 +237,10 @@ test('System Stats: multi-page telemetry (vps, web, nighty, minecraft) and Actio
 
   // 3. Render Page: VPS & OS
   const vpsEmbed = createSystemPageEmbed({ page: 'vps', stats: mockDetailedStats, formatBytes: fb, formatDuration: fd });
-  assert.ok(vpsEmbed.data.title.includes('VPS Sistem'));
+  assert.ok(vpsEmbed.data.title.includes('VPS Genel'));
   assert.ok(vpsEmbed.data.fields.some(f => f.name.includes('İşlemci')));
   assert.ok(vpsEmbed.data.fields.some(f => f.name.includes('RAM')));
-  assert.ok(vpsEmbed.data.fields.some(f => f.name.includes('NVMe SSD')));
-  assert.ok(vpsEmbed.data.fields.some(f => f.name.includes('Domain') || f.name.includes('Nginx') || f.name.includes('Alan')));
+  assert.ok(vpsEmbed.data.fields.some(f => f.name.includes('Disk')));
 
   // 4. Render Page: Media Storage
   const mediaEmbed = createSystemPageEmbed({ page: 'media', stats: mockDetailedStats, formatBytes: fb, formatDuration: fd });
@@ -260,36 +259,45 @@ test('System Stats: multi-page telemetry (vps, web, nighty, minecraft) and Actio
   assert.ok(webEmbed.data.fields.some(f => f.value.includes('asikvestel-media')));
   assert.ok(webEmbed.data.footer.text.includes('Sayfa 3/5'));
 
-  // 6. Render Page: Nighty
-  const nightyEmbed = createSystemPageEmbed({ page: 'nighty', stats: mockDetailedStats, formatBytes: fb, formatDuration: fd });
-  assert.ok(nightyEmbed.data.title.includes('Nighty'));
-  assert.ok(nightyEmbed.data.fields.some(f => f.name.includes('Konteyner Durumu')));
-  assert.ok(nightyEmbed.data.fields.some(f => f.value.includes('538 MB')));
-  assert.ok(nightyEmbed.data.fields.some(f => f.name.includes('Vaultwarden')));
-  assert.ok(nightyEmbed.data.fields.some(f => f.name.includes('mc-router')));
-  assert.ok(nightyEmbed.data.footer.text.includes('Sayfa 4/5'));
+  // 6. Render Page: Docker
+  mockDetailedStats.allContainers = [
+    { name: 'nighty', label: 'Nighty Selfbot', image: 'nighty-linux-headless:latest', status: '🟢 Up 4 days (healthy)', cpu: '7.8%', mem: '1.153GiB / 15.62GiB', netIO: '1MB / 2MB', blockIO: '0B / 0B', isOnline: true },
+    { name: 'wg-easy', label: 'WireGuard VPN (wg-easy)', image: 'ghcr.io/wg-easy/wg-easy:15', status: '🟢 Up 48 minutes', cpu: '0.9%', mem: '206MiB / 15.62GiB', netIO: '0B / 0B', blockIO: '0B / 0B', isOnline: true }
+  ];
+  const dockerEmbed = createSystemPageEmbed({ page: 'docker', stats: mockDetailedStats, formatBytes: fb, formatDuration: fd });
+  assert.ok(dockerEmbed.data.title.includes('Docker'));
+  assert.ok(dockerEmbed.data.fields.some(f => f.name === 'Nighty Selfbot' && f.value.includes('1.153GiB')));
+  assert.ok(dockerEmbed.data.fields.some(f => f.name === 'WireGuard VPN (wg-easy)'));
+  assert.ok(dockerEmbed.data.footer.text.includes('Sayfa 4/5'));
 
-  // 7. Render Page: Minecraft
-  const mcEmbed = createSystemPageEmbed({ page: 'mc', stats: mockDetailedStats, formatBytes: fb, formatDuration: fd });
-  assert.ok(mcEmbed.data.title.includes('Minecraft'));
-  assert.ok(mcEmbed.data.fields.some(f => f.name.includes('Sunucu Durumu')));
-  assert.ok(mcEmbed.data.fields.some(f => f.value.includes('25565')));
-  assert.ok(mcEmbed.data.fields.some(f => f.name.includes('Wings')));
-  assert.ok(mcEmbed.data.footer.text.includes('Sayfa 5/5'));
+  // 7. Render Page: Services (non-container, non-PM2 tasks)
+  mockDetailedStats.processGroups = [
+    { key: 'unit:wings', label: 'Pterodactyl Wings', kind: 'systemd', rssBytes: 80 * 1024 * 1024, cpu: 0.1, procs: 1 },
+    { key: 'docker:x', label: 'Nighty Selfbot', kind: 'docker', rssBytes: 900 * 1024 * 1024, cpu: 2.5, procs: 9 }
+  ];
+  const svcEmbed = createSystemPageEmbed({ page: 'services', stats: mockDetailedStats, formatBytes: fb, formatDuration: fd });
+  assert.ok(svcEmbed.data.title.includes('Servisler'));
+  assert.ok(svcEmbed.data.fields.some(f => f.value.includes('Pterodactyl Wings')));
+  assert.ok(!svcEmbed.data.fields.some(f => f.value.includes('Nighty Selfbot')));
+  assert.ok(svcEmbed.data.footer.text.includes('Sayfa 5/5'));
+
+  // The overview ranks all groups by RAM
+  const topEmbed = createSystemPageEmbed({ page: 'vps', stats: mockDetailedStats, formatBytes: fb, formatDuration: fd });
+  assert.ok(topEmbed.data.fields.some(f => f.name.includes('En Çok') && f.value.includes('Nighty Selfbot')));
 
   // 8. ActionRow validation (2-tier layout)
-  const rows = createSystemActionRow('mc', false);
+  const rows = createSystemActionRow('services', false);
   assert.ok(Array.isArray(rows));
   assert.strictEqual(rows.length, 2);
   const navRow = rows[0];
   assert.strictEqual(navRow.components.length, 5);
   const customIds = navRow.components.map(c => c.data.custom_id);
-  assert.deepStrictEqual(customIds, ['sys_page_vps', 'sys_page_media', 'sys_page_web', 'sys_page_nighty', 'sys_page_mc']);
+  assert.deepStrictEqual(customIds, ['sys_page_vps', 'sys_page_media', 'sys_page_web', 'sys_page_docker', 'sys_page_services']);
 
-  // mc button should have Primary style (1), others Secondary (2)
-  const mcBtn = navRow.components.find(c => c.data.custom_id === 'sys_page_mc');
+  // services button should have Primary style (1), others Secondary (2)
+  const svcBtn = navRow.components.find(c => c.data.custom_id === 'sys_page_services');
   const vpsBtn = navRow.components.find(c => c.data.custom_id === 'sys_page_vps');
-  assert.strictEqual(mcBtn.data.style, 1);
+  assert.strictEqual(svcBtn.data.style, 1);
   assert.strictEqual(vpsBtn.data.style, 2);
 
   // Row 2 actions
@@ -297,4 +305,34 @@ test('System Stats: multi-page telemetry (vps, web, nighty, minecraft) and Actio
   assert.ok(actionRow.components.some(c => c.data.custom_id === 'sys_page_refresh'));
   assert.ok(actionRow.components.some(c => c.data.label === '🌐 Web Sitesi'));
   assert.ok(actionRow.components.some(c => c.data.label === '☁️ Medya Host'));
+});
+
+test('System Stats: processes are grouped by container, PM2 app and systemd unit', () => {
+  const { groupProcesses, containerLabel } = require('../src/systemStats');
+  const id = 'a'.repeat(64);
+  const ps = [
+    `10 1000 1.0 0::/system.slice/docker-${id}.scope`,
+    `11 500 0.5 0::/system.slice/docker-${id}.scope`,
+    '20 200 0.1 0::/system.slice/nginx.service',
+    '21 300 0.2 0::/system.slice/pm2-root.service',
+    '22 4000 0.3 0::/system.slice/pm2-root.service',
+    '30 50 0.0 0::/user.slice/user-0.slice/session-5.scope',
+    '40 70 0.0 -'
+  ].join('\n');
+  const groups = groupProcesses(ps, {
+    containers: [{ fullId: id, label: 'Nighty Selfbot' }],
+    pm2: { processes: [{ pid: 22, name: 'asikvestel-bot' }] }
+  });
+  const byLabel = Object.fromEntries(groups.map(g => [g.label, g]));
+  assert.strictEqual(byLabel['Nighty Selfbot'].procs, 2);
+  assert.strictEqual(byLabel['Nighty Selfbot'].rssBytes, 1500 * 1024);
+  assert.strictEqual(byLabel['Discord Botu (asikvestel-bot)'].kind, 'pm2');
+  assert.strictEqual(byLabel['Nginx (Ters Proxy)'].kind, 'systemd');
+  assert.strictEqual(byLabel['PM2 Yöneticisi'].procs, 1);
+  assert.strictEqual(byLabel['SSH Oturumları'].kind, 'session');
+  assert.strictEqual(groups.length, 5); // kernel thread ('-') skipped
+  assert.strictEqual(groups[0].label, 'Discord Botu (asikvestel-bot)'); // sorted by RAM
+
+  assert.strictEqual(containerLabel('wg-easy', 'ghcr.io/wg-easy/wg-easy:15'), 'WireGuard VPN (wg-easy)');
+  assert.strictEqual(containerLabel('06d73e79-45ef-4ee8-bd1e-b3c66645c00f', 'ghcr.io/ptero-eggs/yolks:java_25'), 'Minecraft Sunucusu (Pterodactyl)');
 });

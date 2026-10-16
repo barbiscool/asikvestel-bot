@@ -83,6 +83,107 @@ function readDiskUsage() {
   return { total: 0, used: 0, free: 0, usedPercent: 0 };
 }
 
+const PM2_LABELS = {
+  'asikvestel-vault': 'Web Sitesi (asikvestel-vault)',
+  'asikvestel-media': 'CDN Medya Host (asikvestel-media)',
+  'asikvestel-bot': 'Discord Botu (asikvestel-bot)'
+};
+
+const UNIT_LABELS = {
+  nginx: 'Nginx (Ters Proxy)',
+  wings: 'Pterodactyl Wings',
+  pteroq: 'Pterodactyl Kuyruk İşçisi',
+  mariadb: 'MariaDB (Panel Veritabanı)',
+  'redis-server': 'Redis (Önbellek)',
+  'php8.3-fpm': 'PHP-FPM (Panel)',
+  docker: 'Docker Motoru',
+  containerd: 'containerd',
+  'pm2-root': 'PM2 Yöneticisi',
+  cron: 'Cron Zamanlayıcı',
+  ssh: 'SSH Sunucusu',
+  'qemu-guest-agent': 'QEMU Guest Agent',
+  'systemd-journald': 'Sistem Günlüğü (journald)',
+  'systemd-logind': 'Oturum Yöneticisi (logind)',
+  'systemd-timesyncd': 'Saat Eşitleme',
+  'systemd-udevd': 'Aygıt Yöneticisi (udev)'
+};
+
+/**
+ * Human-readable Turkish names for the Docker containers on the VPS.
+ */
+function containerLabel(name = '', image = '') {
+  const n = name.toLowerCase();
+  const img = (image || '').toLowerCase();
+  if (n.includes('nighty') || img.includes('nighty')) return 'Nighty Selfbot';
+  if (n.includes('vaultwarden') || img.includes('vaultwarden')) return 'Vaultwarden Parola Kasası';
+  if (n.includes('mc-router') || img.includes('mc-router')) return 'mc-router Minecraft Yönlendirici';
+  if (n.includes('wg-easy') || img.includes('wg-easy')) return 'WireGuard VPN (wg-easy)';
+  if (img.includes('ptero') || img.includes('yolks') || /^[0-9a-f-]{36}$/.test(n)) return 'Minecraft Sunucusu (Pterodactyl)';
+  return name || 'Bilinmeyen Konteyner';
+}
+
+/**
+ * Groups every process on the host by what owns it, using the cgroup path from `ps`:
+ * a Docker container, a PM2 app, a systemd unit or a login session.
+ * `psText` lines look like `pid rss_kb pcpu cgroup`. Returns groups sorted by RAM.
+ */
+function groupProcesses(psText, { containers = [], pm2 = {} } = {}) {
+  const byFullId = new Map(containers.filter(c => c.fullId).map(c => [c.fullId, c]));
+  const pm2ByPid = new Map((pm2.processes || []).filter(p => p.pid).map(p => [p.pid, p]));
+  const groups = new Map();
+
+  for (const line of String(psText).split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)$/);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    const rssBytes = Number(m[2]) * 1024;
+    const cpu = parseFloat(m[3]) || 0;
+    const leaf = m[4].split('/').pop();
+    let key, label, kind;
+
+    const docker = leaf.match(/^docker-([0-9a-f]{64})\.scope$/);
+    if (pm2ByPid.has(pid)) {
+      const name = pm2ByPid.get(pid).name;
+      key = `pm2:${name}`; label = PM2_LABELS[name] || name; kind = 'pm2';
+    } else if (docker) {
+      const c = byFullId.get(docker[1]);
+      key = `docker:${docker[1]}`; label = c ? c.label : `Konteyner ${docker[1].slice(0, 12)}`; kind = 'docker';
+    } else if (leaf.endsWith('.service')) {
+      const unit = leaf.slice(0, -'.service'.length);
+      key = `unit:${unit}`; label = UNIT_LABELS[unit] || unit; kind = 'systemd';
+    } else if (/^session-\d+\.scope$/.test(leaf)) {
+      key = 'sessions'; label = 'SSH Oturumları'; kind = 'session';
+    } else {
+      continue; // kernel threads have no cgroup
+    }
+
+    const g = groups.get(key) || { key, label, kind, rssBytes: 0, cpu: 0, procs: 0 };
+    g.rssBytes += rssBytes;
+    g.cpu += cpu;
+    g.procs += 1;
+    groups.set(key, g);
+  }
+
+  return [...groups.values()].sort((a, b) => b.rssBytes - a.rssBytes);
+}
+
+/**
+ * Lists every resource-using task on the host. CPU is `ps` pcpu (average over the
+ * process lifetime, per core), unlike the live `docker stats` figures.
+ */
+function readProcessGroups(containers, pm2) {
+  try {
+    const out = execSync('ps -eo pid=,rss=,pcpu=,cgroup=', {
+      timeout: 2500,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore']
+    });
+    return groupProcesses(out, { containers, pm2 });
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Gathers Docker container statistics dynamically for all running services:
  * - Nighty Headless Selfbot
@@ -146,7 +247,7 @@ function readDockerContainers() {
 
   try {
     // 1. Query running containers via docker ps
-    const psOutput = execSync('docker ps --format "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"', {
+    const psOutput = execSync('docker ps --no-trunc --format "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"', {
       timeout: 2500,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'ignore']
@@ -156,9 +257,9 @@ function readDockerContainers() {
     const psLines = psOutput.trim().split('\n').filter(Boolean);
     for (const line of psLines) {
       const [id, names, image, status, ports] = line.split('\t');
-      psMap.set(id.slice(0, 12), { id: id.slice(0, 12), name: names, image, status, ports });
-      // Also map by name
-      psMap.set(names, { id: id.slice(0, 12), name: names, image, status, ports });
+      const info = { id: id.slice(0, 12), fullId: id, name: names, image, status, ports };
+      psMap.set(info.id, info);
+      psMap.set(names, info);
     }
 
     // 2. Query resource stats via docker stats
@@ -187,6 +288,8 @@ function readDockerContainers() {
         netIO: netIO || '0B / 0B',
         blockIO: blockIO || '0B / 0B',
         ports: psInfo.ports || '',
+        fullId: psInfo.fullId || '',
+        label: containerLabel(name, psInfo.image),
         isOnline: true
       };
 
@@ -362,6 +465,7 @@ function getSystemStats(config = {}) {
   const disk = readDiskUsage();
   const containers = readDockerContainers();
   const pm2 = readPm2Processes();
+  const processGroups = readProcessGroups(containers.allContainers, pm2);
   const database = readDatabaseInfo(config);
   const services = readSystemServices();
   const mediaHost = getMediaHostStats(config);
@@ -406,6 +510,7 @@ function getSystemStats(config = {}) {
     mcRouter: containers.mcRouter,
     minecraft: containers.minecraft,
     allContainers: containers.allContainers,
+    processGroups,
     pm2,
     database,
     services,
@@ -487,6 +592,8 @@ module.exports = {
   readDockerContainers,
   readPm2Processes,
   readSystemServices,
+  groupProcesses,
+  containerLabel,
   getSystemStats,
   formatSystemStatsMessage
 };

@@ -503,8 +503,8 @@ function createBotClient(config) {
             if (i.customId === 'sys_page_vps') currentPage = 'vps';
             else if (i.customId === 'sys_page_media') currentPage = 'media';
             else if (i.customId === 'sys_page_web') currentPage = 'web';
-            else if (i.customId === 'sys_page_nighty') currentPage = 'nighty';
-            else if (i.customId === 'sys_page_mc') currentPage = 'mc';
+            else if (i.customId === 'sys_page_docker') currentPage = 'docker';
+            else if (i.customId === 'sys_page_services') currentPage = 'services';
             else if (i.customId === 'sys_page_refresh') {
               currentStats = getSystemStats(config);
             }

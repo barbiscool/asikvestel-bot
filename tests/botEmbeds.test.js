@@ -119,7 +119,7 @@ test('Bot Embeds: operational telemetry, system status, and alert embeds', () =>
 
   const sysEmbed = sysPayload.embeds[0].data;
   assert.strictEqual(sysEmbed.color, BOT_COLORS.SUCCESS);
-  assert.ok(sysEmbed.title.includes('VPS Sistem'));
+  assert.ok(sysEmbed.title.includes('VPS Genel'));
   assert.ok(sysEmbed.fields.some(f => f.name.includes('İşlemci')));
   assert.ok(sysEmbed.fields.some(f => f.name.includes('RAM')));
 

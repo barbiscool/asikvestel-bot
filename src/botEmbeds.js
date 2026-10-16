@@ -179,6 +179,25 @@ function createStatsEmbed({ stats, config }) {
   return { embeds: [embed], components: [row] };
 }
 
+const GROUP_ICONS = { docker: '🐳', pm2: '📦', systemd: '⚙️', session: '👤' };
+
+/**
+ * Joins lines into chunks that fit one embed field (max 1024 characters).
+ */
+function chunkLines(lines, maxLen = 1000) {
+  const chunks = [];
+  let cur = '';
+  for (const line of lines) {
+    if (cur && cur.length + line.length + 1 > maxLen) {
+      chunks.push(cur);
+      cur = '';
+    }
+    cur += (cur ? '\n' : '') + line;
+  }
+  if (cur) chunks.push(cur);
+  return chunks;
+}
+
 /**
  * Creates a visual gauge bar (e.g. ▰▰▰▱▱▱▱▱▱▱ %30)
  */
@@ -280,10 +299,11 @@ function createMediaHostStatsEmbed({ rawData, stats, config = {} }) {
 
 /**
  * Creates a paginated system telemetry embed based on the selected tab:
- * - 'vps': Host OS, CPU, RAM, NVMe Disk, Swap, Uptime
- * - 'web': Web site & bot process, Node memory, SQLite db
- * - 'nighty': Docker container status, CPU%, RAM, Net/Block I/O
- * - 'mc': Minecraft server container, Fabric, Java 21, Port 25565
+ * - 'vps': load, RAM, disk, swap and the top resource users
+ * - 'media': media host storage
+ * - 'web': PM2 apps (site, CDN, bot), Node memory, SQLite db
+ * - 'docker': every running container with live CPU/RAM/IO
+ * - 'services': every non-container, non-PM2 task (nginx, wings, mariadb, ...)
  */
 function createSystemPageEmbed({ page = 'vps', stats, formatBytes, formatDuration }) {
   const fb = typeof formatBytes === 'function' ? formatBytes : (b) => `${((b || 0) / (1024 * 1024)).toFixed(1)} MB`;
@@ -399,192 +419,111 @@ function createSystemPageEmbed({ page = 'vps', stats, formatBytes, formatDuratio
       .setTimestamp();
   }
 
-  if (page === 'nighty') {
-    const nighty = stats.nighty || {};
-    const vw = stats.vaultwarden || {};
-    const router = stats.mcRouter || {};
-    const statusColor = (nighty.isOnline || vw.isOnline) ? BOT_COLORS.CYAN : BOT_COLORS.AMBER;
+  if (page === 'docker') {
+    const containers = stats.allContainers || [];
+    const running = containers.filter(c => c.isOnline).length;
+    const embed = new EmbedBuilder()
+      .setColor(running ? BOT_COLORS.CYAN : BOT_COLORS.AMBER)
+      .setTitle('🐳 Aşık Vestel • Docker Konteynerleri')
+      .setDescription(`**Çalışan konteyner:** \`${running}\` • canlı \`docker stats\` değerleri`);
 
-    return new EmbedBuilder()
-      .setColor(statusColor)
-      .setTitle('🤖 Aşık Vestel • Nighty, Vaultwarden & mc-router')
-      .setDescription('**Docker Konteynerleri:** `nighty`, `vaultwarden`, `mc-router`')
-      .addFields(
-        {
-          name: '📦 Konteyner Durumu (Nighty)',
-          value:
-            `• **Durum:** \`${nighty.status || 'Bilinmiyor'}\` (${nighty.health || 'Aktif'})\n` +
-            `• **İmaj:** \`${nighty.image || 'nighty-linux-headless:latest'}\`\n` +
-            `• **ID:** \`${nighty.id || '-'}\``,
-          inline: true
-        },
-        {
-          name: '⚙️ Nighty Kaynak Kullanımı',
-          value:
-            `• **İşlemci (CPU):** \`${nighty.cpu || '0%'}\`\n` +
-            `• **Bellek:** \`${nighty.mem || '0 MB'}\`\n` +
-            `• **Ağ I/O:** \`${nighty.netIO || '0B / 0B'}\``,
-          inline: true
-        },
-        {
-          name: '🔐 Vaultwarden Parola Kasası',
-          value:
-            `• **Durum:** \`${vw.status || 'Bilinmiyor'}\` (${vw.health || 'Aktif'})\n` +
-            `• **CPU:** \`${vw.cpu || '0%'}\` • **RAM:** \`${vw.mem || '0 MB'}\`\n` +
-            `• **Web UI:** \`https://vault.asikvestel.org\` (:8090)`,
-          inline: true
-        },
-        {
-          name: '🔀 mc-router Minecraft Yönlendirici',
-          value:
-            `• **Durum:** \`${router.status || 'Bilinmiyor'}\`\n` +
-            `• **Port:** \`${router.port || '0.0.0.0:25565'}\`\n` +
-            `• **CPU:** \`${router.cpu || '0%'}\` • **RAM:** \`${router.mem || '0 MB'}\``,
-          inline: true
-        },
-        {
-          name: '🔗 Ağ & Ters Proxy (Nginx)',
-          value:
-            `• **Nighty Web:** \`https://nighty.asikvestel.org\` (:8088)\n` +
-            `• **Vault Web:** \`https://vault.asikvestel.org\` (:8090)\n` +
-            `• **Erişim:** \`Nginx SSL + WebSocket / Korumalı\``,
-          inline: false
-        }
-      )
-      .setFooter({ text: 'Sayfa 4/5 • Nighty & Docker Telemetrisi | Aşık Vestel' })
+    if (!containers.length) {
+      embed.addFields({ name: 'Konteyner bulunamadı', value: '`docker` erişilemedi veya çalışan konteyner yok.' });
+    }
+    for (const c of containers.slice(0, 20)) {
+      embed.addFields({
+        name: `${c.label || c.name}`,
+        value:
+          `• **Durum:** \`${c.status}\`\n` +
+          `• **CPU:** \`${c.cpu}\` • **RAM:** \`${c.mem}\`\n` +
+          `• **Ağ I/O:** \`${c.netIO}\` • **Disk I/O:** \`${c.blockIO}\`\n` +
+          `• **İmaj:** \`${c.image}\``,
+        inline: false
+      });
+    }
+    return embed
+      .setFooter({ text: 'Sayfa 4/5 • Docker Konteynerleri | Aşık Vestel' })
       .setTimestamp();
   }
 
-  if (page === 'mc') {
-    const mc = stats.minecraft || {};
-    const statusColor = mc.isOnline ? BOT_COLORS.SUCCESS : BOT_COLORS.AMBER;
-    const availRam = fb(stats.memory?.availableBytes || 0);
-    const wingsStatus = stats.services?.systemd?.wings || '🟢 Aktif';
-    const mariadbStatus = stats.services?.systemd?.mariadb || '🟢 Aktif';
-    const redisStatus = stats.services?.systemd?.redis || '🟢 Aktif';
+  if (page === 'services') {
+    const groups = (stats.processGroups || []).filter(g => g.kind !== 'docker' && g.kind !== 'pm2');
+    const lines = groups.map(g => `• **${g.label}** — \`${fb(g.rssBytes)}\` • CPU \`${g.cpu.toFixed(1)}%\` • ${g.procs} süreç`);
+    const systemd = stats.services?.systemd || {};
+    const embed = new EmbedBuilder()
+      .setColor(BOT_COLORS.PRIMARY)
+      .setTitle('⚙️ Aşık Vestel • Sistem Servisleri')
+      .setDescription(
+        `Konteyner ve PM2 dışında çalışan her şey, RAM'e göre sıralı.\n` +
+        `**Nginx:** ${systemd.nginx || '-'} • **Wings:** ${systemd.wings || '-'} • **MariaDB:** ${systemd.mariadb || '-'} • **Redis:** ${systemd.redis || '-'}`
+      );
 
-    return new EmbedBuilder()
-      .setColor(statusColor)
-      .setTitle('⛏️ Aşık Vestel • Minecraft & Oyun Altyapısı')
-      .setDescription(`**Pterodactyl Wings** | **Sunucu:** \`${mc.type || 'Fabric (Java 25)'}\``)
-      .addFields(
-        {
-          name: '🎮 Sunucu Durumu',
-          value:
-            `• **Durum:** \`${mc.status || 'Çevrimdışı'}\`\n` +
-            `• **Yazılım:** \`${mc.type || 'Fabric (Java 25)'}\`\n` +
-            `• **Konteyner:** \`${mc.containerName || mc.id || '-'}\``,
-          inline: true
-        },
-        {
-          name: '⚙️ Kaynak Tüketimi',
-          value:
-            `• **İşlemci (CPU):** \`${mc.cpu || '0%'}\`\n` +
-            `• **Tahsis / Kullanım:** \`${mc.mem || '0 MB'}\`\n` +
-            `• **Ağ I/O:** \`${mc.netIO || '0B / 0B'}\``,
-          inline: true
-        },
-        {
-          name: '🧠 Serbest Bellek Rezervi',
-          value:
-            `• **VPS Boş RAM:** \`${availRam}\`\n` +
-            `*Minecraft için genişletilebilir serbest bellek.*`,
-          inline: true
-        },
-        {
-          name: '🦅 Pterodactyl Wings & Servisler',
-          value:
-            `• **Wings Daemon:** \`${wingsStatus}\` (Port 8080 API / 2022 SFTP)\n` +
-            `• **MariaDB:** \`${mariadbStatus}\` (Port 3306) • **Redis:** \`${redisStatus}\` (Port 6379)`,
-          inline: false
-        },
-        {
-          name: '🌐 Bağlantı & Port Bilgileri',
-          value:
-            `• **Doğrudan IP / Oyun:** \`62.83.32.164:25565\` (TCP/UDP)\n` +
-            `• **Pterodactyl Paneli:** \`https://panel.asikvestel.org\`\n` +
-            `• **İç Port:** \`25566 (Minecraft Fabric Container)\``,
-          inline: false
-        }
-      )
-      .setFooter({ text: 'Sayfa 5/5 • Minecraft & Pterodactyl | Aşık Vestel' })
+    const chunks = chunkLines(lines, 1000);
+    if (!chunks.length) chunks.push('Süreç listesi okunamadı.');
+    chunks.forEach((value, i) => embed.addFields({ name: i === 0 ? '🧾 Çalışan Servisler' : '​', value, inline: false }));
+    return embed
+      .setFooter({ text: 'Sayfa 5/5 • Sistem Servisleri | Aşık Vestel • CPU: süreç ömrü ortalaması' })
       .setTimestamp();
   }
 
   // Default Page: 'vps'
-  const load1 = stats.cpu?.loadAvg?.[0]?.toFixed(2) || '0.00';
-  const load5 = stats.cpu?.loadAvg?.[1]?.toFixed(2) || '0.00';
-  const load15 = stats.cpu?.loadAvg?.[2]?.toFixed(2) || '0.00';
+  const cores = stats.cpu?.cores || 1;
+  const load = stats.cpu?.loadAvg || [0, 0, 0];
+  const loadPercent = Math.round((load[0] / cores) * 100);
+  const [load1, load5, load15] = load.map(v => (v || 0).toFixed(2));
 
-  const ramUsed = fb(stats.memory?.usedBytes || 0);
-  const ramTotal = fb(stats.memory?.totalBytes || 0);
-  const ramFree = fb(stats.memory?.availableBytes || stats.memory?.freeBytes || 0);
-  const swapUsed = fb(stats.memory?.swapUsedBytes || 0);
-  const swapTotal = fb(stats.memory?.swapTotalBytes || 0);
-
-  const diskUsed = fb(stats.disk?.used || 0);
-  const diskTotal = fb(stats.disk?.total || 0);
-  const diskFree = fb(stats.disk?.free || 0);
+  const ramPercent = stats.memory?.usedPercent || 0;
+  const swapTotalBytes = stats.memory?.swapTotalBytes || 0;
+  const swapPercent = swapTotalBytes ? Math.round(((stats.memory?.swapUsedBytes || 0) / swapTotalBytes) * 100) : 0;
   const diskPercent = stats.disk?.usedPercent || 0;
 
+  const worst = Math.max(ramPercent, diskPercent, loadPercent);
   let embedColor = BOT_COLORS.SUCCESS;
-  if (stats.memory?.usedPercent > 90 || diskPercent > 90) {
-    embedColor = BOT_COLORS.DANGER;
-  } else if (stats.memory?.usedPercent > 75 || diskPercent > 75) {
-    embedColor = BOT_COLORS.AMBER;
-  }
+  if (worst > 90) embedColor = BOT_COLORS.DANGER;
+  else if (worst > 75) embedColor = BOT_COLORS.AMBER;
 
-  const ramBar = createGaugeBar(stats.memory?.usedPercent || 0);
-  const diskBar = createGaugeBar(diskPercent);
-
-  const nginxStatus = stats.services?.systemd?.nginx || '🟢 Aktif';
-  const wingsStatus = stats.services?.systemd?.wings || '🟢 Aktif';
-  const mariadbStatus = stats.services?.systemd?.mariadb || '🟢 Aktif';
-  const redisStatus = stats.services?.systemd?.redis || '🟢 Aktif';
+  const top = (stats.processGroups || []).slice(0, 8).map((g, i) =>
+    `\`${i + 1}.\` ${GROUP_ICONS[g.kind] || '▪️'} **${g.label}** — \`${fb(g.rssBytes)}\` • CPU \`${g.cpu.toFixed(1)}%\``
+  );
 
   return new EmbedBuilder()
     .setColor(embedColor)
-    .setTitle('🖥️ Aşık Vestel • VPS Sistem & İşletim Sistemi (Genel Bakış)')
-    .setDescription(`**Ana Makine Durumu:** \`Stabil / Sağlıklı\` | **Uptime:** \`${sysUptime}\``)
+    .setTitle('🖥️ Aşık Vestel • VPS Genel Bakış')
+    .setDescription(`**Çalışma süresi:** \`${sysUptime}\` • **${cores} vCPU** • \`${(stats.cpu?.model || 'AMD EPYC-Genoa').split('@')[0].trim()}\``)
     .addFields(
       {
-        name: '⚙️ İşlemci (CPU)',
-        value: `\`${stats.cpu?.cores || 8} vCPU\` • \`${(stats.cpu?.model || 'AMD EPYC-Genoa').split('@')[0].trim()}\`\n**Yük:** \`${load1}\`, \`${load5}\`, \`${load15}\``,
+        name: '⚙️ İşlemci Yükü',
+        value: `\`${createGaugeBar(loadPercent)}\` **%${loadPercent}**\n1/5/15 dk: \`${load1}\` \`${load5}\` \`${load15}\``,
         inline: true
       },
       {
-        name: '🧠 Bellek (RAM & Swap)',
-        value: `\`${ramBar}\` **%${stats.memory?.usedPercent || 0}**\n**RAM:** \`${ramUsed}\` / \`${ramTotal}\`\n**Swap:** \`${swapUsed}\` / \`${swapTotal}\``,
+        name: '🧠 RAM',
+        value: `\`${createGaugeBar(ramPercent)}\` **%${ramPercent}**\n\`${fb(stats.memory?.usedBytes || 0)}\` / \`${fb(stats.memory?.totalBytes || 0)}\``,
         inline: true
       },
       {
-        name: '💾 NVMe SSD Depolama',
-        value: `\`${diskBar}\` **%${diskPercent}**\n**Kullanılan:** \`${diskUsed}\` / \`${diskTotal}\`\n**Boş Alan:** \`${diskFree}\` (\`/\`)`,
+        name: '💾 Disk (/)',
+        value: `\`${createGaugeBar(diskPercent)}\` **%${diskPercent}**\n\`${fb(stats.disk?.used || 0)}\` / \`${fb(stats.disk?.total || 0)}\``,
         inline: true
       },
-      {
-        name: '🌐 Alan Adları & Ters Proxy (Nginx)',
-        value:
-          `• \`asikvestel.org\` (:4000) • \`media.asikvestel.org\` (:4500)\n` +
-          `• \`nighty.asikvestel.org\` (:8088) • \`vault.asikvestel.org\` (:8090)\n` +
-          `• \`panel.asikvestel.org\` (:8080)`,
+      ...(swapTotalBytes ? [{
+        name: '🔁 Swap',
+        value: `\`${createGaugeBar(swapPercent)}\` **%${swapPercent}** • \`${fb(stats.memory?.swapUsedBytes || 0)}\` / \`${fb(swapTotalBytes)}\``,
         inline: false
-      },
+      }] : []),
       {
-        name: '🛡️ Servisler & Güvenlik',
-        value:
-          `• **Nginx:** \`${nginxStatus}\` • **Wings:** \`${wingsStatus}\` • **MariaDB:** \`${mariadbStatus}\` • **Redis:** \`${redisStatus}\`\n` +
-          `• **OS:** \`${stats.os?.platform || 'linux'} (${stats.os?.arch || 'x64'})\` • **UFW:** \`Aktif\` • **IP:** \`62.83.32.164\``,
+        name: '🔥 En Çok Kaynak Kullananlar (RAM)',
+        value: top.length ? top.join('\n') : 'Süreç listesi okunamadı.',
         inline: false
       }
     )
-    .setFooter({ text: 'Sayfa 1/5 • VPS & OS Genel Bakış | Aşık Vestel' })
+    .setFooter({ text: 'Sayfa 1/5 • VPS Genel Bakış | Aşık Vestel' })
     .setTimestamp();
 }
 
 /**
  * Creates the 2-tier ActionRow layout for pagination and quick actions:
- * - Row 1: 5 navigation page buttons (vps, media, web, nighty, mc)
+ * - Row 1: 5 navigation page buttons (vps, media, web, docker, services)
  * - Row 2: refresh button + direct link buttons
  */
 function createSystemActionRow(activePage = 'vps', disabled = false) {
@@ -605,14 +544,14 @@ function createSystemActionRow(activePage = 'vps', disabled = false) {
       .setStyle(activePage === 'web' ? ButtonStyle.Primary : ButtonStyle.Secondary)
       .setDisabled(disabled),
     new ButtonBuilder()
-      .setCustomId('sys_page_nighty')
-      .setLabel('🤖 Nighty')
-      .setStyle(activePage === 'nighty' ? ButtonStyle.Primary : ButtonStyle.Secondary)
+      .setCustomId('sys_page_docker')
+      .setLabel('🐳 Docker')
+      .setStyle(activePage === 'docker' ? ButtonStyle.Primary : ButtonStyle.Secondary)
       .setDisabled(disabled),
     new ButtonBuilder()
-      .setCustomId('sys_page_mc')
-      .setLabel('⛏️ Minecraft')
-      .setStyle(activePage === 'mc' ? ButtonStyle.Primary : ButtonStyle.Secondary)
+      .setCustomId('sys_page_services')
+      .setLabel('⚙️ Servisler')
+      .setStyle(activePage === 'services' ? ButtonStyle.Primary : ButtonStyle.Secondary)
       .setDisabled(disabled)
   );
 
