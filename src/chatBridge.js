@@ -758,6 +758,7 @@ class ChatBridge extends EventEmitter {
       fetch(`${webApiUrl.replace(/\/$/, '')}/api/chat/internal/incoming`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
+        signal: AbortSignal.timeout(5000),
         body: JSON.stringify({ message: formatted })
       }).catch(err => console.warn('[ChatBridge] Web API relay failed:', err.message));
     }

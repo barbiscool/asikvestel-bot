@@ -29,6 +29,7 @@ function relayPresence(discordId, presence) {
   fetch(`${webApiUrl.replace(/\/$/, '')}/api/spotify/internal/presence`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
+    signal: AbortSignal.timeout(5000),
     body: JSON.stringify({ discordId, presence: presence || null, isPlaying: Boolean(presence) })
   }).catch(err => console.warn('[Spotify Presence] Web relay failed:', err.message));
 }
