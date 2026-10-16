@@ -130,7 +130,7 @@ function createQuoteEmbed({ quote, author, taggedUser, addedBy, id, config }) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setLabel('Sitede Gör')
-      .setURL(`${siteUrl}/council/`)
+      .setURL(`${siteUrl}/#konsey`)
       .setStyle(ButtonStyle.Link)
       .setEmoji('📜')
   );

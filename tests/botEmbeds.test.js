@@ -78,7 +78,7 @@ test('Bot Embeds: content presentation embeds (clips, media/GIFs, quotes, archiv
   assert.ok(quoteEmbed.description.includes('Biz bu yola baş koyduk'));
   assert.ok(quoteEmbed.fields.some(f => f.name.includes('Sahibi') && f.value.includes('<@735152588801966132>')));
   assert.strictEqual(quotePayload.components[0].components[0].data.label, 'Sitede Gör');
-  assert.strictEqual(quotePayload.components[0].components[0].data.url, 'https://asikvestel.org/council/');
+  assert.strictEqual(quotePayload.components[0].components[0].data.url, 'https://asikvestel.org/#konsey');
 
   // 4. Archive stats embed
   const statsPayload = createStatsEmbed({
