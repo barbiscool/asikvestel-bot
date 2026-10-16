@@ -20,6 +20,19 @@ function setCacheInvalidator(fn) {
   cacheInvalidator = fn;
 }
 
+// Bot side only: push presence changes to the website, which has no Discord gateway of its own.
+// Same gating as the chat relay: only runs when WEB_API_URL and the secret are set, which the website never does.
+function relayPresence(discordId, presence) {
+  const webApiUrl = config.WEB_API_URL || process.env.WEB_API_URL;
+  const secret = config.CHAT_BRIDGE_INTERNAL_SECRET || process.env.CHAT_BRIDGE_INTERNAL_SECRET;
+  if (!webApiUrl || !secret || typeof fetch !== 'function') return;
+  fetch(`${webApiUrl.replace(/\/$/, '')}/api/spotify/internal/presence`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
+    body: JSON.stringify({ discordId, presence: presence || null, isPlaying: Boolean(presence) })
+  }).catch(err => console.warn('[Spotify Presence] Web relay failed:', err.message));
+}
+
 function parseSpotifyPresence(presence) {
   if (!presence || !presence.activities) return null;
 
@@ -131,6 +144,10 @@ function handlePresenceUpdate(oldPresence, newPresence, db = defaultDb) {
     }
 
     presenceLiveStore.set(discordId, currentPlaying);
+    // Presence events also fire for unrelated status changes; only relay a new song, resume or seek.
+    if (!prevPlaying || prevPlaying.track_id !== currentPlaying.track_id || prevPlaying.started_at !== currentPlaying.started_at) {
+      relayPresence(discordId, currentPlaying);
+    }
     if (typeof cacheInvalidator === 'function') {
       cacheInvalidator();
     }
@@ -156,6 +173,7 @@ function handlePresenceUpdate(oldPresence, newPresence, db = defaultDb) {
         }
       }
       presenceLiveStore.delete(discordId);
+      relayPresence(discordId, null);
       if (typeof cacheInvalidator === 'function') {
         cacheInvalidator();
       }
@@ -198,6 +216,7 @@ async function scanGuildPresences(client, db = defaultDb) {
           const live = parseSpotifyPresence(member.presence);
           if (live) {
             presenceLiveStore.set(member.id, live);
+            relayPresence(member.id, live);
             console.log(`[Spotify Presence Startup] Detected active music for ${member.displayName}: ${live.track_name} - ${live.artist_name}`);
           }
         }
