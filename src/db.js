@@ -747,7 +747,7 @@ function insertScrobbles(discordId, tracks, defaultSource = 'spotify') {
       if (!t.track_id || !t.played_at) continue;
       const existing = checkDupe.get(discordId, t.track_id, t.played_at, t.artist_name || '', t.track_name || '', t.played_at);
       if (existing) continue;
-      if (t.played_at_is_end && checkEnded.get(discordId, t.track_id, t.played_at - Math.round((t.duration_ms || 0) / 1000) - 30, t.played_at + 5)) continue;
+      if (t.played_at_is_end && checkEnded.get(discordId, t.track_id, t.played_at - Math.round((t.duration_ms || 0) / 1000) - 300, t.played_at + 5)) continue;
 
       const source = t.source || defaultSource;
       const res = stmt.run(
