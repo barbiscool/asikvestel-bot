@@ -151,7 +151,7 @@ const DEFAULT_COUNCIL = [
     "role": "KRAL SİKEN",
     "avatarEmoji": "",
     "glowColor": "white",
-    "image": "",
+    "image": "https://media.asikvestel.org/tV8SS7?raw=true",
     "bio": "valorant kötü faceit iyi",
     "traits": [
       "Faceit 9LVL",
@@ -166,7 +166,7 @@ const DEFAULT_COUNCIL = [
     "role": "DOMUZ",
     "avatarEmoji": "",
     "glowColor": "cyan",
-    "image": "https://media.asikvestel.org/Barb/HuLIoT.png",
+    "image": "https://media.asikvestel.org/SqLkvF?raw=true",
     "bio": "WR CEO sora hükümdarı rustın domuzu",
     "traits": [
       "Bi olayı yok",
