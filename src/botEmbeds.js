@@ -421,7 +421,7 @@ function createSystemPageEmbed({ page = 'vps', stats, formatBytes, formatDuratio
         },
         {
           name: '📡 Canlı Entegrasyonlar',
-          value: `• **Spotify Radar:** \`10s Radar / 300s Döngü\`\n• **Last.fm Sync:** \`12s Polling (barb_btw)\`\n• **Web Chat Köprüsü:** \`Aktif (Çift Sunucu)\`\n• **Medya Host Depolama:** \`/var/www/media (CDN Aktif)\``,
+          value: `• **Spotify Radar:** \`10s Radar / 300s Döngü\`\n• **Web Chat Köprüsü:** \`Aktif (Çift Sunucu)\`\n• **Medya Host Depolama:** \`/var/www/media (CDN Aktif)\``,
           inline: false
         }
       )

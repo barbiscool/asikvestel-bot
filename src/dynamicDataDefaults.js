@@ -23,16 +23,16 @@ const DEFAULT_QUOTES = [
     "author": "- Samed no.3 (taseronthebeat)"
   },
   {
-    "quote": "Reyna'nın amını yala-",
+    "quote": "Reyna'nın götünü yala-",
     "author": "- Koray"
   },
   {
     "quote": "Tamam kral en çok siz kazanın turnuvayı FORZA AV",
-    "author": "- Kuduruk rakiplerimizden biri"
+    "author": "- AV FANLARI"
   },
   {
     "quote": "Sora best mouse bro",
-    "author": "- Domuz"
+    "author": "- Haylaz"
   },
   {
     "quote": "Sağcılar solcular belli oldu",
@@ -122,7 +122,7 @@ const DEFAULT_COUNCIL = [
     "avatarEmoji": "",
     "glowColor": "white",
     "image": "/assets/images/members/samed.png",
-    "bio": "iri penisli şok tabancası",
+    "bio": "Şok tabancası on the beat",
     "traits": [
       "Harika Fortnite Oyuncusu",
       "Mükemmel Prodüktör",
@@ -152,7 +152,7 @@ const DEFAULT_COUNCIL = [
     "avatarEmoji": "",
     "glowColor": "white",
     "image": "",
-    "bio": "valorantın bacısını sikim faceit güzel",
+    "bio": "valorant kötü faceit iyi",
     "traits": [
       "Faceit 9LVL",
       "Barbin bakireliğini bozan",
@@ -170,7 +170,7 @@ const DEFAULT_COUNCIL = [
     "bio": "WR CEO sora hükümdarı rustın domuzu",
     "traits": [
       "Bi olayı yok",
-      "Soran'nın oğlu",
+      "Sora'nın oğlu",
       "Barb'ın oğlu olan binim"
     ]
   },
@@ -178,11 +178,11 @@ const DEFAULT_COUNCIL = [
     "id": "307547136604766219",
     "name": "Koray",
     "handle": "@Koray",
-    "role": "KorKoray",
+    "role": "DEV",
     "avatarEmoji": "",
     "glowColor": "red",
     "image": "/assets/images/members/koray.gif",
-    "bio": "Ben bir hamamböceğiyim",
+    "bio": "Software Developer studying at NİŞANTAŞI UNIVERSITY",
     "traits": [
       "Yazılımcı"
     ]
@@ -279,19 +279,9 @@ const DEFAULT_LORE = [
     "desc": "Grubumuzun eski üyelerinden olan KryErgn, sabah saatlerinde yaptığı haraketlerden dolayı akşama doğru infazı verilmiştir, grubumuz Koray'ın kaderine karar vermek için bir konsey kurup sürgününü sağlamıştır."
   },
   {
-    "season": "Sezon 2",
-    "title": "4 Günlük Minecraft Çılgınlığı",
-    "desc": "İnsanlık tarihinin en organize toplumu kuruldu. Otomatik tarlalar, demir çiftlikleri, mega üsler yapıldı... 96 saat sonra sunucuya bir daha kimse girmedi."
-  },
-  {
-    "season": "Sezon 3",
-    "title": "Büyük Mikrofon Ayarı Münazarası",
-    "desc": "Bir üyenin arkasından gelen helikopter pervane sesini çözmek için Discord ekran paylaşımında verilen 6 saatlik ses mühendisliği semineri."
-  },
-  {
-    "season": "Sezon 4",
-    "title": "Kurtarılamayan Seri Maçı",
-    "desc": "'Kazanmadan uyumak yok' kuralı konulduktan sonra sabaha karşı 06:15'e kadar arka arkaya 9 maç kaybedilen o meşhur gece."
+    "season": "Vaka 2",
+    "title": "Aşık Vestel İKİ",
+    "desc": "Orijinal sunucunun kurucusu ve lideri olan Berke'nin diktatörlüğünden kurtulmak ve eskiyi eskide bırakıp yeni bir sayfa açma umuduyla Aşık Vestel 2 sunucusu kuruldu ve aktif üyeler oraya transfer edildi."
   }
 ];
 
@@ -320,11 +310,6 @@ const DEFAULT_RULES = [
     "num": "§ 05",
     "title": "Gizlilik",
     "desc": "Sunucu hakkında söz etmemek."
-  },
-  {
-    "num": "§ 06",
-    "title": "Sabah 04:00 Kararları",
-    "desc": "Gecenin köründe verilen hayat tavsiyeleri ve gaza gelip başlanan projeler sabah olunca hükümsüzdür."
   }
 ];
 

@@ -834,10 +834,10 @@ function buildTimeFilterClause(timeFilter, columnName = 'played_at', referenceDa
   return '';
 }
 
-function getPersonalWrapped(discordId, timeFilter = 'all', includeLastfm = false) {
+function getPersonalWrapped(discordId, timeFilter = 'all') {
   const db = getDb();
   const timeClause = buildTimeFilterClause(timeFilter, 'played_at');
-  const sourceClause = includeLastfm ? '' : "AND (source IS NULL OR source = 'spotify')";
+  const sourceClause = "AND (source IS NULL OR source = 'spotify')";
 
   const totals = db.prepare(`
     SELECT 
@@ -890,7 +890,7 @@ function getPersonalWrapped(discordId, timeFilter = 'all', includeLastfm = false
     top_artists: topArtists || [],
     top_tracks: topTracks || [],
     top_genres: calculateTopGenres(topArtists),
-    trends: getListeningTrends(discordId, timeFilter, includeLastfm)
+    trends: getListeningTrends(discordId, timeFilter)
   };
 }
 
@@ -1027,10 +1027,10 @@ function calculateTopGenres(artistsWithPlays) {
   }));
 }
 
-function getListeningTrends(discordId = null, timeFilter = 'all', includeLastfm = false) {
+function getListeningTrends(discordId = null, timeFilter = 'all') {
   const db = getDb();
   const timeClause = buildTimeFilterClause(timeFilter, 'played_at');
-  const sourceClause = includeLastfm ? '' : "AND (source IS NULL OR source = 'spotify')";
+  const sourceClause = "AND (source IS NULL OR source = 'spotify')";
 
   const params = [];
   let userClause = '';
@@ -1067,11 +1067,11 @@ function getListeningTrends(discordId = null, timeFilter = 'all', includeLastfm 
   });
 }
 
-function getGangWrapped(timeFilter = 'all', includeLastfm = false) {
+function getGangWrapped(timeFilter = 'all') {
   const db = getDb();
   const timeClause = buildTimeFilterClause(timeFilter, 'played_at');
-  const sourceClause = includeLastfm ? '' : "AND (source IS NULL OR source = 'spotify')";
-  const sSourceClause = includeLastfm ? '' : "AND (s.source IS NULL OR s.source = 'spotify')";
+  const sourceClause = "AND (source IS NULL OR source = 'spotify')";
+  const sSourceClause = "AND (s.source IS NULL OR s.source = 'spotify')";
   const sTimeClause = buildTimeFilterClause(timeFilter, 's.played_at');
 
   const totals = db.prepare(`
@@ -1153,15 +1153,15 @@ function getGangWrapped(timeFilter = 'all', includeLastfm = false) {
       display_name: m.discord_name || m.spotify_display_name || m.discord_id
     })),
     top_genres: calculateTopGenres(artistsForGenres),
-    trends: getListeningTrends(null, timeFilter, includeLastfm)
+    trends: getListeningTrends(null, timeFilter)
   };
 }
 
-function searchArtistLeaderboard(query, includeLastfm = false) {
+function searchArtistLeaderboard(query) {
   if (!query || typeof query !== 'string') return [];
   const db = getDb();
   const sanitized = `%${query.trim()}%`;
-  const sSourceClause = includeLastfm ? '' : "AND (s.source IS NULL OR s.source = 'spotify')";
+  const sSourceClause = "AND (s.source IS NULL OR s.source = 'spotify')";
 
   const rows = db.prepare(`
     SELECT 
