@@ -732,6 +732,9 @@ function insertScrobbles(discordId, tracks, defaultSource = 'spotify') {
     )
     LIMIT 1
   `);
+  // "Recently played" stamps a track with the time it ENDED, a live scrobble with the time it STARTED. A track from that
+  // list is a duplicate when the same track was already scrobbled live anywhere in the span that ends at its timestamp.
+  const checkEnded = db.prepare('SELECT id FROM spotify_scrobbles WHERE discord_id = ? AND track_id = ? AND played_at BETWEEN ? AND ? LIMIT 1');
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO spotify_scrobbles (
       discord_id, track_id, track_name, artist_name, album_name, album_art_url, duration_ms, played_at, source
@@ -744,6 +747,7 @@ function insertScrobbles(discordId, tracks, defaultSource = 'spotify') {
       if (!t.track_id || !t.played_at) continue;
       const existing = checkDupe.get(discordId, t.track_id, t.played_at, t.artist_name || '', t.track_name || '', t.played_at);
       if (existing) continue;
+      if (t.played_at_is_end && checkEnded.get(discordId, t.track_id, t.played_at - Math.round((t.duration_ms || 0) / 1000) - 30, t.played_at + 5)) continue;
 
       const source = t.source || defaultSource;
       const res = stmt.run(
@@ -763,6 +767,11 @@ function insertScrobbles(discordId, tracks, defaultSource = 'spotify') {
   insertMany(tracks);
 
   return inserted;
+}
+
+// The real heard time of a play, written when it ends (duration_ms holds milliseconds listened for live scrobbles).
+function updateScrobbleListened(discordId, trackId, playedAt, ms) {
+  return getDb().prepare("UPDATE spotify_scrobbles SET duration_ms = ? WHERE discord_id = ? AND track_id = ? AND played_at = ? AND source = 'spotify'").run(Math.max(0, Math.round(ms)), discordId, trackId, playedAt).changes;
 }
 
 function getFilterTimeRange(timeFilter, referenceDate = null) {
@@ -1506,6 +1515,7 @@ module.exports = {
   upsertDiscordUsersBatch,
   getDiscordUser,
   insertScrobbles,
+  updateScrobbleListened,
   getPersonalWrapped,
   getGangWrapped,
   searchArtistLeaderboard,
