@@ -24,6 +24,7 @@ Discord bot for Aşık Vestel. Shared context (services, VPS, deploys, data rule
 
 ### claude-context rules
 
+- **Search freely.** `search_code` is unlimited and costs well under a cent per 1,000 queries; use it first for any "where is the code that does X" question, and grep only for exact strings. The cost and rate-limit notes below are about indexing only.
 - All three repos are already indexed, and background sync picks up changed files. Don't re-index.
 - A guard hook allows at most 6 `index_codebase`/`clear_index` calls per hour across all sessions, because embeddings cost money (Gemini `gemini-embedding-001`, paid key, monthly cap). Never re-index in a loop.
 - `get_indexing_status` can show a bogus "200 files / 200 chunks" mid-run; trust the final status.
