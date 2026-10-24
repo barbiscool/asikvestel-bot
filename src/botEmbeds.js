@@ -223,22 +223,19 @@ function createGaugeBar(percent, totalBlocks = 10) {
  */
 function createMediaHostStatsEmbed({ rawData, stats, config = {} }) {
   const data = rawData || stats || {};
-  const r2 = data.r2 || {};
   const vps = data.vps || {};
   const mStats = data.stats || {};
   const siteUrl = config.MEDIA_HOST_URL || 'https://media.asikvestel.org';
 
-  const r2PercentNum = parseFloat(r2.percentUsed) || (r2.maxBytes ? ((r2.usedBytes / r2.maxBytes) * 100) : 0);
   const vpsPercentNum = parseFloat(vps.percentUsed) || 0;
 
   let embedColor = BOT_COLORS.SUCCESS;
-  if (r2PercentNum > 85 || vpsPercentNum > 90) {
+  if (vpsPercentNum > 90) {
     embedColor = BOT_COLORS.DANGER;
-  } else if (r2PercentNum > 70 || vpsPercentNum > 80) {
+  } else if (vpsPercentNum > 80) {
     embedColor = BOT_COLORS.AMBER;
   }
 
-  const r2Gauge = createGaugeBar(r2PercentNum, 10);
   const vpsGauge = createGaugeBar(vpsPercentNum, 10);
 
   const embed = new EmbedBuilder()
@@ -247,18 +244,15 @@ function createMediaHostStatsEmbed({ rawData, stats, config = {} }) {
       name: 'Aşık Vestel • Medya Depolama Telemetrisi',
       iconURL: `${siteUrl}/favicon.ico`
     })
-    .setTitle('☁️ media.asikvestel.org Depolama & Kota')
+    .setTitle('☁️ media.asikvestel.org Depolama')
     .setDescription(
       `**Medya Sunucusu:** \`🟢 Aktif\` • **Host:** \`62.83.32.164:4500\`\n` +
-      `*Cloudflare R2 nesne depolama, host NVMe disk alanı ve kullanıcı istatistikleri.*`
+      `*Yüklenen medya (disk), host NVMe disk alanı ve kullanıcı istatistikleri.*`
     )
     .addFields(
       {
-        name: '☁️ Cloudflare R2 Depolama (S3)',
-        value:
-          `\`${r2Gauge}\` **%${r2PercentNum.toFixed(1)}**\n` +
-          `• **Kullanım:** \`${r2.usedFormatted || '0 B'}\` / \`${r2.maxFormatted || '10.00 GB'}\`\n` +
-          `• **Yüklenen Medya:** \`${(r2.fileCount || 0).toLocaleString('tr-TR')} dosya\` • **Kova:** \`${r2.bucketName || 'mediahost-community'}\``,
+        name: '📁 Yüklenen Medya (Disk)',
+        value: `• **Dosya:** \`${(mStats.totalFiles || 0).toLocaleString('tr-TR')}\` • **Boyut:** \`${mStats.totalBytesFormatted || '0 B'}\``,
         inline: false
       },
       {
@@ -281,8 +275,7 @@ function createMediaHostStatsEmbed({ rawData, stats, config = {} }) {
         name: '🗄️ Veritabanı & Altyapı',
         value:
           `• **SQLite DB:** \`${data.dbSizeFormatted || '0 B'}\` (\`${data.dbPath || '/var/lib/asikvestel/media.db'}\`)\n` +
-          `• **Toplam İndekslenen Boyut:** \`${mStats.totalBytesFormatted || '0 B'}\`\n` +
-          `• **Eşik Takibi:** \`R2 Kotası: < 8.5 GB\` • \`VPS Boş Disk: > %10\``,
+          `• **Eşik Takibi:** \`VPS Boş Disk: > %10\``,
         inline: false
       }
     )
@@ -324,18 +317,15 @@ function createSystemPageEmbed({ page = 'vps', stats, formatBytes, formatDuratio
 
   if (page === 'media') {
     const media = stats.mediaHost || {};
-    const r2 = media.r2 || {};
     const vpsDisk = media.vps || {};
     const mStats = media.stats || {};
 
-    const r2Percent = parseFloat(r2.percentUsed) || (r2.maxBytes ? ((r2.usedBytes / r2.maxBytes) * 100) : 0);
     const vpsPercent = parseFloat(vpsDisk.percentUsed) || 0;
 
     let statusColor = BOT_COLORS.CYAN;
-    if (r2Percent > 85 || vpsPercent > 90) statusColor = BOT_COLORS.DANGER;
-    else if (r2Percent > 70 || vpsPercent > 80) statusColor = BOT_COLORS.AMBER;
+    if (vpsPercent > 90) statusColor = BOT_COLORS.DANGER;
+    else if (vpsPercent > 80) statusColor = BOT_COLORS.AMBER;
 
-    const r2Gauge = createGaugeBar(r2Percent, 10);
     const vpsGauge = createGaugeBar(vpsPercent, 10);
 
     return new EmbedBuilder()
@@ -343,15 +333,12 @@ function createSystemPageEmbed({ page = 'vps', stats, formatBytes, formatDuratio
       .setTitle('☁️ Aşık Vestel • Medya Sunucusu Depolama')
       .setDescription(
         `**Alan Adı:** \`media.asikvestel.org\` (:4500) • **Durum:** \`🟢 Aktif\`\n` +
-        `*Cloudflare R2 nesne depolama, host NVMe disk alanı ve kullanıcı istatistikleri.*`
+        `*Yüklenen medya (disk), host NVMe disk alanı ve kullanıcı istatistikleri.*`
       )
       .addFields(
         {
-          name: '☁️ Cloudflare R2 Depolama (S3)',
-          value:
-            `\`${r2Gauge}\` **%${r2Percent.toFixed(1)}**\n` +
-            `• **Kullanım:** \`${r2.usedFormatted || '0 B'}\` / \`${r2.maxFormatted || '10.00 GB'}\`\n` +
-            `• **Yüklenen Medya:** \`${(r2.fileCount || 0).toLocaleString('tr-TR')} dosya\` • **Kova:** \`${r2.bucketName || 'mediahost-community'}\``,
+          name: '📁 Yüklenen Medya (Disk)',
+          value: `• **Dosya:** \`${(mStats.totalFiles || 0).toLocaleString('tr-TR')}\` • **Boyut:** \`${mStats.totalBytesFormatted || '0 B'}\``,
           inline: false
         },
         {
@@ -373,8 +360,7 @@ function createSystemPageEmbed({ page = 'vps', stats, formatBytes, formatDuratio
           name: '🗄️ Medya Veritabanı & Altyapı',
           value:
             `• **SQLite DB:** \`${media.dbSizeFormatted || '0 B'}\` (\`${media.dbPath || '/var/lib/asikvestel/media.db'}\`)\n` +
-            `• **Toplam Medya:** \`${mStats.totalBytesFormatted || '0 B'}\`\n` +
-            `• **Eşik Takibi:** \`R2 Kotası: < 8.5 GB\` • \`VPS Boş Disk: > %10\``,
+            `• **Eşik Takibi:** \`VPS Boş Disk: > %10\``,
           inline: false
         }
       )

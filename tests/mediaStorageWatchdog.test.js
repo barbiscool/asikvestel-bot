@@ -32,8 +32,7 @@ test('MediaStorageWatchdog: readHostDiskSpace', () => {
 test('MediaStorageWatchdog: getMediaHostStats fallback when db missing', () => {
   const stats = getMediaHostStats({ MEDIA_DB_PATH: '/nonexistent/path/media.db' });
   assert.strictEqual(stats.available, false);
-  assert.strictEqual(stats.r2.maxBytes, 10737418240);
-  assert.strictEqual(stats.r2.usedBytes, 0);
+  assert.strictEqual(stats.r2, undefined);
   assert.strictEqual(stats.stats.totalFiles, 0);
 });
 

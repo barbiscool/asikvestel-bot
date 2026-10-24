@@ -26,10 +26,6 @@ let watchdogInterval = null;
 let lastAlertTime = 0;
 const ALERT_COOLDOWN_MS = 60 * 60 * 1000; // 1-hour cooldown between duplicate alerts
 
-// Capacity Limits (matching media-host architecture)
-const R2_MAX_FREE_BYTES = 10 * 1024 * 1024 * 1024; // 10 GB Free Tier
-const R2_ALERT_THRESHOLD_BYTES = 8.5 * 1024 * 1024 * 1024; // 8.5 GB Alert Trigger
-
 /**
  * Formats bytes to human-readable strings.
  */
@@ -117,16 +113,6 @@ function getMediaHostStats(config = {}) {
     dbSizeBytes: 0,
     dbSizeFormatted: '0 B',
     vps: disk,
-    r2: {
-      configured: true,
-      bucketName: 'mediahost-community',
-      maxBytes: R2_MAX_FREE_BYTES,
-      usedBytes: 0,
-      fileCount: 0,
-      percentUsed: '0.0',
-      usedFormatted: '0 B',
-      maxFormatted: formatBytes(R2_MAX_FREE_BYTES)
-    },
     stats: {
       totalFiles: 0,
       totalBytes: 0,
@@ -160,10 +146,8 @@ function getMediaHostStats(config = {}) {
     try {
       // 1. Media storage queries
       let totalMedia = { count: 0, total_bytes: 0 };
-      let r2Stats = { count: 0, r2_bytes: 0 };
       try {
         totalMedia = db.prepare('SELECT COUNT(*) as count, COALESCE(SUM(file_size), 0) as total_bytes FROM media').get() || {};
-        r2Stats = db.prepare("SELECT COUNT(*) as count, COALESCE(SUM(file_size), 0) as r2_bytes FROM media WHERE storage_tier = 'r2'").get() || {};
       } catch {}
 
       // 2. User & invite queries
@@ -199,21 +183,7 @@ function getMediaHostStats(config = {}) {
         }
       } catch {}
 
-      const r2Used = r2Stats.r2_bytes || 0;
-      const r2Percent = R2_MAX_FREE_BYTES > 0 ? ((r2Used / R2_MAX_FREE_BYTES) * 100).toFixed(1) : '0.0';
-
       result.available = true;
-      result.r2 = {
-        configured: true,
-        bucketName: 'mediahost-community',
-        maxBytes: R2_MAX_FREE_BYTES,
-        usedBytes: r2Used,
-        fileCount: r2Stats.count || 0,
-        percentUsed: r2Percent,
-        usedFormatted: formatBytes(r2Used),
-        maxFormatted: formatBytes(R2_MAX_FREE_BYTES)
-      };
-
       result.stats = {
         totalFiles: totalMedia.count || 0,
         totalBytes: totalMedia.total_bytes || 0,
@@ -246,13 +216,11 @@ async function checkAndAlertStorage(client, config = {}, force = false) {
   }
 
   const metrics = getMediaHostStats(config);
-  const r2Used = metrics.r2.usedBytes || 0;
   const vpsPercentFree = parseFloat(metrics.vps.percentFree) || 100;
 
-  const isR2Critical = r2Used >= R2_ALERT_THRESHOLD_BYTES;
   const isVpsCritical = vpsPercentFree < 10.0;
 
-  if (!isR2Critical && !isVpsCritical && !force) {
+  if (!isVpsCritical && !force) {
     return false; // Storage is healthy, no alert needed
   }
 
@@ -265,23 +233,19 @@ async function checkAndAlertStorage(client, config = {}, force = false) {
       return false;
     }
 
-    const r2Gauge = createGaugeBar(parseFloat(metrics.r2.percentUsed) || 0, 10);
     const vpsGauge = createGaugeBar(parseFloat(metrics.vps.percentUsed) || 0, 10);
 
     const embed = new EmbedBuilder()
       .setTitle('⚠️ Aşık Vestel Medya Depolama Uyarısı')
-      .setColor(isR2Critical || isVpsCritical ? BOT_COLORS.DANGER : BOT_COLORS.AMBER)
+      .setColor(isVpsCritical ? BOT_COLORS.DANGER : BOT_COLORS.AMBER)
       .setDescription(
         `Medya sunucusu depolama eşikleri kritik seviyeye ulaştı!\n` +
         `Sunucu: \`media.asikvestel.org\` (Host: \`62.83.32.164\`)`
       )
       .addFields(
         {
-          name: '☁️ Cloudflare R2 Depolama',
-          value: 
-            `**Kullanım:** \`${metrics.r2.usedFormatted}\` / \`${metrics.r2.maxFormatted}\` (**%${metrics.r2.percentUsed}**)\n` +
-            `\`${r2Gauge}\`\n` +
-            `• **Dosya Sayısı:** \`${metrics.r2.fileCount} dosya\``,
+          name: '📁 Yüklenen Medya',
+          value: `\`${metrics.stats.totalFiles} dosya\` • \`${metrics.stats.totalBytesFormatted}\``,
           inline: false
         },
         {
@@ -294,9 +258,9 @@ async function checkAndAlertStorage(client, config = {}, force = false) {
         },
         {
           name: '🚨 Durum ve Önerilen Aksiyon',
-          value: isR2Critical
-            ? 'Cloudflare R2 10 GB ücretsiz kotasının %85 sınırına ulaşıldı. Eski dosyaların VPS NVMe diskine aktarılması veya depolama temizliği yapılması önerilir.'
-            : 'VPS disk boş alanı %10 altına düştü. Lütfen host üzerindeki disk kullanımını inceleyin.',
+          value: isVpsCritical
+            ? 'VPS disk boş alanı %10 altına düştü. Lütfen host üzerindeki disk kullanımını inceleyin.'
+            : 'Manuel kontrol: depolama eşikleri aşılmadı.',
           inline: false
         }
       )

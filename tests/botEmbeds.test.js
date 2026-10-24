@@ -143,15 +143,6 @@ test('Bot Embeds: operational telemetry, system status, and alert embeds', () =>
       dbExists: true,
       dbSizeBytes: 16384,
       dbSizeFormatted: '16.00 KB',
-      r2: {
-        usedBytes: 1024 * 1024 * 1024 * 2.5,
-        usedFormatted: '2.50 GB',
-        maxBytes: 10 * 1024 * 1024 * 1024,
-        maxFormatted: '10.00 GB',
-        percentUsed: '25.0',
-        fileCount: 420,
-        bucketName: 'mediahost-community'
-      },
       vps: {
         usedBytes: 1024 * 1024 * 1024 * 20,
         usedFormatted: '20.00 GB',
@@ -177,7 +168,7 @@ test('Bot Embeds: operational telemetry, system status, and alert embeds', () =>
   const mediaEmbed = mediaHostPayload.embeds[0].data;
   assert.strictEqual(mediaEmbed.color, BOT_COLORS.SUCCESS);
   assert.ok(mediaEmbed.title.includes('media.asikvestel.org'));
-  assert.ok(mediaEmbed.fields.some(f => f.name.includes('Cloudflare R2')));
+  assert.ok(mediaEmbed.fields.some(f => f.name.includes('Yüklenen Medya')));
   assert.ok(mediaEmbed.fields.some(f => f.name.includes('NVMe Disk')));
   assert.ok(mediaEmbed.fields.some(f => f.name.includes('Kullanıcılar')));
   assert.strictEqual(mediaHostPayload.components[0].components[0].data.label, 'Medya Paneli');

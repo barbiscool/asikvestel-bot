@@ -401,7 +401,7 @@ function getClips(filters = {}) {
   }
   if (filters.query) {
     const rawQuery = filters.query.trim().toLowerCase();
-    const aliasMatches = GAME_ABBREVIATIONS[rawQuery] || [];
+    const aliasMatches = Object.hasOwn(GAME_ABBREVIATIONS, rawQuery) ? GAME_ABBREVIATIONS[rawQuery] : []; // not the inherited keys ('constructor')
 
     if (aliasMatches.length > 0) {
       const placeholders = aliasMatches.map(() => '?').join(', ');
@@ -428,7 +428,7 @@ function getClips(filters = {}) {
 
   // limit/page come straight from the query string; clamp so a request can't pull the whole table or go negative.
   const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 20, 1), 100);
-  const page = Math.max(parseInt(filters.page, 10) || 1, 1);
+  const page = Math.min(Math.max(parseInt(filters.page, 10) || 1, 1), 1e6); // a huge page overflows SQLite's integer offset
   const offset = (page - 1) * limit;
   const sortDir = filters.sort === 'asc' ? 'ASC' : 'DESC';
 

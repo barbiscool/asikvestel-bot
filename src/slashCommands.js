@@ -83,7 +83,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('media-stats')
-    .setDescription('Aşık Vestel Medya Sunucusu (R2, Disk, Kullanıcılar) istatistiklerini görüntüler.'),
+    .setDescription('Aşık Vestel Medya Sunucusu (Disk, Kullanıcılar) istatistiklerini görüntüler.'),
 
   new SlashCommandBuilder()
     .setName('soz-ekle')
