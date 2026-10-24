@@ -9,7 +9,9 @@ Discord bot for Aşık Vestel. Shared context (services, VPS, deploys, data rule
 
 ## Shared modules
 
-`crypto.js`, `vaultStorage.js`, `vaultWorker.js`, `chatBridge.js`, `parser.js`, `discordSpotifyTracker.js`, `cdnRefresher.js`, `dynamicDataDefaults.js` and `db.js` must be byte-identical to `../website/backend/src/`. The bot has no `statsSync.js` (the website writes `stats.json`). The Website session leads changes to these: agree first, then copy its file unchanged and check the sha256.
+`crypto.js`, `vaultStorage.js`, `vaultWorker.js`, `chatBridge.js`, `parser.js`, `discordSpotifyTracker.js`, `cdnRefresher.js` and `dynamicDataDefaults.js` must be byte-identical to `../website/backend/src/`. The bot has no `statsSync.js` (the website writes `stats.json`). The Website session leads changes to these: agree first, then copy its file unchanged and check the sha256.
+
+`db.js` is **not** a byte-identical twin: the copies diverge on purpose (the website has `session_revocations`, the bot has `addVoiceSeconds`/`getVcStatsRaw`). Never copy one over the other; only the table schema must stay compatible.
 
 ## Tooling
 
@@ -37,7 +39,7 @@ Discord bot for Aşık Vestel. Shared context (services, VPS, deploys, data rule
 ## Guardrails
 
 - `ssh`, `scp`, `./deploy.sh` and `bash deploy.sh` always ask the user first.
-- A PostToolUse hook warns when an edited shared module differs from its website twin. Its list still names `statsSync.js` and doesn't include `db.js`, so check `db.js` by hand (`cmp src/db.js ../website/backend/src/db.js`).
+- A PostToolUse hook (`~/.claude/hooks/netcup-twin-modules.sh`) warns when an edited shared module differs from its website twin. For `db.js` the warning is a reminder to check schema compatibility, not to make the files identical.
 - `gh` isn't installed: no PRs. Push only with the user's OK.
 
 ## Code map (`src/`)
@@ -59,5 +61,5 @@ Entry: `index.js` (init DB, check `DISCORD_BOT_TOKEN` and `DB_ENCRYPTION_KEY`, l
 ## Habits
 
 - Before deleting an export, grep `src/` and `tests/`; some exports exist only for tests (e.g. `botEmbeds.createSystemEmbed`, `systemStats.readDockerContainers`).
-- Local Node is 26, but `node_modules/better-sqlite3` is built for Node 20 (ABI 115) and v11 won't compile on 26, so 8 DB tests fail there with `ERR_DLOPEN_FAILED`. Run the suite on Node 20: `npm i --prefix /tmp/node20 node-linux-x64@20.20.2` (the `node@20` package and `npx node@20` don't work: install scripts are blocked and npx keeps the system node), then `/tmp/node20/node_modules/node-linux-x64/bin/node --test tests/*.test.js`. All 35 pass there.
+- Local Node is 26, but `node_modules/better-sqlite3` is built for Node 20 (ABI 115) and v11 won't compile on 26, so 8 DB tests fail there with `ERR_DLOPEN_FAILED`. A persistent Node 20.20.2 is installed: put it first on `PATH` for `npm test` and `./deploy.sh` (`PATH=$HOME/.local/share/node20/node_modules/node/bin:$PATH`), or run `~/.local/bin/node20 --test tests/*.test.js`. Don't reinstall it into `/tmp` (wiped on reboot). All 35 tests pass there.
 - Local `.env` exists and is gitignored; never print it.
