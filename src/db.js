@@ -259,6 +259,10 @@ function initDb(dbPath = config.DB_PATH) {
   }
   try { dbInstance.exec('ALTER TABLE images_vault ADD COLUMN blob_id TEXT DEFAULT NULL;'); } catch (e) {}
   try { dbInstance.exec('ALTER TABLE clips ADD COLUMN blob_id TEXT DEFAULT NULL;'); } catch (e) {}
+  // Archive thumbnails: the small encrypted picture of a vault file (NULL = not made yet, '' = could not be made), and a clip's length in seconds.
+  try { dbInstance.exec('ALTER TABLE clips ADD COLUMN thumb_blob_id TEXT DEFAULT NULL;'); } catch (e) {}
+  try { dbInstance.exec('ALTER TABLE clips ADD COLUMN duration_sec REAL DEFAULT NULL;'); } catch (e) {}
+  try { dbInstance.exec('ALTER TABLE images_vault ADD COLUMN thumb_blob_id TEXT DEFAULT NULL;'); } catch (e) {}
   try { dbInstance.exec('CREATE INDEX IF NOT EXISTS idx_images_blob_id ON images_vault(blob_id);'); } catch (e) {}
   try { dbInstance.exec('CREATE INDEX IF NOT EXISTS idx_clips_blob_id ON clips(blob_id);'); } catch (e) {}
 
@@ -563,6 +567,24 @@ function updateClipVaultBlob(id, blobId, localUrl = null) {
   }
   const stmt = db.prepare('UPDATE clips SET blob_id = ? WHERE id = ?');
   return stmt.run(blobId, id);
+}
+
+const THUMB_TABLES = { clips: 'clips', images: 'images_vault' };
+
+// Vault files that still need a thumbnail, newest first. Clips: Discord videos only (YouTube has its own picture).
+function getThumbPending(kind, limit = 10) {
+  const table = THUMB_TABLES[kind];
+  if (!table) throw new Error(`Unknown thumbnail kind: ${kind}`);
+  const only = kind === 'clips' ? " AND media_type = 'video_discord'" : '';
+  return getDb().prepare(`SELECT id, blob_id, media_type FROM ${table} WHERE blob_id IS NOT NULL AND blob_id != '' AND thumb_blob_id IS NULL${only} ORDER BY id DESC LIMIT ?`).all(limit);
+}
+
+// thumbBlobId '' records "could not be made", so the worker does not try again.
+function setThumb(kind, id, thumbBlobId, durationSec = null) {
+  const table = THUMB_TABLES[kind];
+  if (!table) throw new Error(`Unknown thumbnail kind: ${kind}`);
+  if (kind === 'clips') return getDb().prepare('UPDATE clips SET thumb_blob_id = ?, duration_sec = ? WHERE id = ?').run(thumbBlobId, durationSec, id);
+  return getDb().prepare('UPDATE images_vault SET thumb_blob_id = ? WHERE id = ?').run(thumbBlobId, id);
 }
 
 function getStats() {
@@ -1526,6 +1548,8 @@ module.exports = {
   insertImage,
   getImages,
   countImages,
+  getThumbPending,
+  setThumb,
   getImageById,
   getClipById,
   updateImageVaultBlob,

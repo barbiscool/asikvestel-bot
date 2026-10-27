@@ -48,13 +48,13 @@ async function assertPublicHost(hostname) {
  * Safely fetches a media URL directly into an in-memory Buffer with SSRF defenses,
  * strict size caps, and timeouts. NEVER writes plaintext to disk.
  */
-async function fetchMediaBuffer(rawUrl) {
+async function fetchMediaBuffer(rawUrl, { maxBytes = MAX_FILE_SIZE_BYTES, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   if (!rawUrl || typeof rawUrl !== 'string') {
     throw new Error('Invalid URL');
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     let url = rawUrl;
@@ -91,8 +91,8 @@ async function fetchMediaBuffer(rawUrl) {
     }
 
     const contentLength = parseInt(res.headers.get('content-length') || '0', 10);
-    if (contentLength > MAX_FILE_SIZE_BYTES) {
-      throw new Error(`File size exceeds limit (${contentLength} > ${MAX_FILE_SIZE_BYTES})`);
+    if (contentLength > maxBytes) {
+      throw new Error(`File size exceeds limit (${contentLength} > ${maxBytes})`);
     }
 
     // Count while reading: content-length can be missing or wrong.
@@ -100,7 +100,7 @@ async function fetchMediaBuffer(rawUrl) {
     let total = 0;
     for await (const chunk of res.body) {
       total += chunk.length;
-      if (total > MAX_FILE_SIZE_BYTES) {
+      if (total > maxBytes) {
         controller.abort();
         throw new Error(`Downloaded buffer exceeds limit (${total} bytes)`);
       }

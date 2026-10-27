@@ -51,3 +51,11 @@ test('fetchMediaBuffer returns the body of a normal response', async () => {
     assert.strictEqual((await fetchMediaBuffer(PUBLIC)).toString(), 'gifdata');
   });
 });
+
+test('fetchMediaBuffer: the size cap can be raised for one call, and the default stays 50 MB', async () => {
+  const big = () => new Response(new Uint8Array(51 * 1024 * 1024));
+  await withFetch(async () => big(), () => assert.rejects(fetchMediaBuffer(PUBLIC), /exceeds limit/));
+  await withFetch(async () => big(), async () => {
+    assert.strictEqual((await fetchMediaBuffer(PUBLIC, { maxBytes: 600 * 1024 * 1024 })).length, 51 * 1024 * 1024);
+  });
+});
