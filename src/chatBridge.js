@@ -162,7 +162,8 @@ class ChatBridge extends EventEmitter {
             username,
             avatar_url: avatarURL,
             allowed_mentions: allowedMentions
-          })
+          }),
+          signal: AbortSignal.timeout(5000)
         });
         if (!res.ok) {
           throw new Error(`Discord Webhook HTTP ${res.status}`);
@@ -238,7 +239,8 @@ class ChatBridge extends EventEmitter {
     if (botToken && typeof fetch === 'function') {
       try {
         const listRes = await fetch(`https://discord.com/api/v10/channels/${targetId}/webhooks`, {
-          headers: { Authorization: `Bot ${botToken}` }
+          headers: { Authorization: `Bot ${botToken}` },
+          signal: AbortSignal.timeout(5000)
         });
         if (listRes.ok) {
           const hooks = await listRes.json();
@@ -257,7 +259,8 @@ class ChatBridge extends EventEmitter {
               body: JSON.stringify({
                 name: 'AsikVestel-WebBridge',
                 reason: 'Aşık Vestel Web-to-Discord Canlı Sohbet Köprüsü'
-              })
+              }),
+              signal: AbortSignal.timeout(5000)
             });
             if (createRes.ok) {
               targetHook = await createRes.json();
@@ -287,7 +290,8 @@ class ChatBridge extends EventEmitter {
             body: JSON.stringify({
               content: `**[${username || 'Web Üyesi'}]**: ${content}`,
               allowed_mentions: allowedMentions || { parse: ['users'] }
-            })
+            }),
+            signal: AbortSignal.timeout(5000)
           });
           if (!res.ok) {
             throw new Error(`Discord Bot REST HTTP ${res.status}`);
@@ -680,7 +684,8 @@ class ChatBridge extends EventEmitter {
     if (botToken && typeof fetch === 'function') {
       try {
         const res = await fetch(`https://discord.com/api/v10/channels/${targetId}/messages?limit=${fetchLimit}`, {
-          headers: { Authorization: `Bot ${botToken}` }
+          headers: { Authorization: `Bot ${botToken}` },
+          signal: AbortSignal.timeout(5000)
         });
         if (res.ok) {
           const rawMessages = await res.json();
@@ -883,7 +888,8 @@ class ChatBridge extends EventEmitter {
             : `https://discord.com/api/v10/channels/${chId}/messages?limit=5`;
 
           const res = await fetch(url, {
-            headers: { Authorization: `Bot ${botToken}` }
+            headers: { Authorization: `Bot ${botToken}` },
+            signal: AbortSignal.timeout(5000)
           });
           if (!res.ok) continue;
           const newMsgs = await res.json();

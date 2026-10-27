@@ -167,6 +167,12 @@ function initDb(dbPath = config.DB_PATH) {
       updated_at INTEGER NOT NULL
     );
 
+    -- logging out sets a per-user time before which every session token is refused
+    CREATE TABLE IF NOT EXISTS session_revocations (
+      discord_id TEXT PRIMARY KEY,
+      not_before INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS quotes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       quote TEXT NOT NULL,
@@ -340,6 +346,15 @@ function updateClipCategory(messageId, newCategory, newGameName = null) {
   }
   const stmt = db.prepare(`UPDATE clips SET category = ? WHERE message_id = ? OR id = ?`);
   return stmt.run(newCategory, messageId, messageId);
+}
+
+// One row per game for the Klip kasası chips; YouTube clips count as their own entry.
+function getClipGameCounts() {
+  const db = getDb();
+  const rows = db.prepare("SELECT category AS name, COUNT(*) AS count FROM clips WHERE media_type != 'youtube' GROUP BY category ORDER BY count DESC, name ASC").all();
+  const yt = db.prepare("SELECT COUNT(*) AS c FROM clips WHERE media_type = 'youtube'").get().c;
+  if (yt > 0) rows.push({ name: 'YouTube', count: yt });
+  return rows;
 }
 
 function getClipByMessageId(messageId) {
@@ -774,58 +789,30 @@ function updateScrobbleListened(discordId, trackId, playedAt, ms) {
   return getDb().prepare("UPDATE spotify_scrobbles SET duration_ms = ? WHERE discord_id = ? AND track_id = ? AND played_at = ? AND source = 'spotify'").run(Math.max(0, Math.round(ms)), discordId, trackId, playedAt).changes;
 }
 
+// Calendar boundaries (weeks, months, years) follow Istanbul time, UTC+3 with no daylight saving, wherever the server runs.
+const TZ_OFFSET_MS = 3 * 3600 * 1000;
+function istanbulStart(year, month, day = 1) {
+  return Math.floor((Date.UTC(year, month, day) - TZ_OFFSET_MS) / 1000); // Date.UTC rolls month and day overflow over
+}
+
+function istanbulYear() { return new Date(Date.now() + TZ_OFFSET_MS).getUTCFullYear(); }
+
 function getFilterTimeRange(timeFilter, referenceDate = null) {
-  const now = referenceDate ? new Date(referenceDate) : new Date();
-  const nowMs = now.getTime();
+  const nowMs = referenceDate ? new Date(referenceDate).getTime() : Date.now();
+  const z = new Date(nowMs + TZ_OFFSET_MS); // read with the UTC getters: they now show Istanbul wall-clock time
+  const Y = z.getUTCFullYear(), M = z.getUTCMonth(), D = z.getUTCDate();
   const raw = String(timeFilter || '').toLowerCase().trim().replace(/[-_ ]/g, '');
 
-  if (raw === 'thisweek' || raw === 'week') {
-    const d = new Date(now);
-    const day = d.getDay();
-    const diff = (day + 6) % 7;
-    d.setDate(d.getDate() - diff);
-    d.setHours(0, 0, 0, 0);
-    return { startSec: Math.floor(d.getTime() / 1000), endSec: null };
+  if (raw === 'thisweek' || raw === 'week' || raw === 'lastweek') {
+    const thisMonSec = istanbulStart(Y, M, D - (z.getUTCDay() + 6) % 7);
+    if (raw === 'lastweek') return { startSec: thisMonSec - 7 * 86400, endSec: thisMonSec - 1 };
+    return { startSec: thisMonSec, endSec: null };
   }
-
-  if (raw === 'lastweek') {
-    const d = new Date(now);
-    const day = d.getDay();
-    const diff = (day + 6) % 7;
-    d.setDate(d.getDate() - diff);
-    d.setHours(0, 0, 0, 0);
-    const thisMonSec = Math.floor(d.getTime() / 1000);
-    const lastMonSec = thisMonSec - 7 * 86400;
-    const lastSunSec = thisMonSec - 1;
-    return { startSec: lastMonSec, endSec: lastSunSec };
-  }
-
-  if (raw === 'thismonth' || raw === 'month') {
-    const startSec = Math.floor(new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).getTime() / 1000);
-    return { startSec, endSec: null };
-  }
-
-  if (raw === 'lastmonth') {
-    const startSec = Math.floor(new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0).getTime() / 1000);
-    const endSec = Math.floor(new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999).getTime() / 1000);
-    return { startSec, endSec };
-  }
-
-  if (raw === 'thisyear' || raw === 'year') {
-    const startOfYear = Math.floor(new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0).getTime() / 1000);
-    return { startSec: startOfYear, endSec: null };
-  }
-
-  if (raw === 'lastyear') {
-    const startSec = Math.floor(new Date(now.getFullYear() - 1, 0, 1, 0, 0, 0, 0).getTime() / 1000);
-    const endSec = Math.floor(new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59, 999).getTime() / 1000);
-    return { startSec, endSec };
-  }
-
-  if (raw === '30d') {
-    return { startSec: Math.floor((nowMs - 30 * 86400000) / 1000), endSec: null };
-  }
-
+  if (raw === 'thismonth' || raw === 'month') return { startSec: istanbulStart(Y, M), endSec: null };
+  if (raw === 'lastmonth') return { startSec: istanbulStart(Y, M - 1), endSec: istanbulStart(Y, M) - 1 };
+  if (raw === 'thisyear' || raw === 'year') return { startSec: istanbulStart(Y, 0), endSec: null };
+  if (raw === 'lastyear') return { startSec: istanbulStart(Y - 1, 0), endSec: istanbulStart(Y, 0) - 1 };
+  if (raw === '30d') return { startSec: Math.floor((nowMs - 30 * 86400000) / 1000), endSec: null };
   return { startSec: null, endSec: null };
 }
 
@@ -893,9 +880,30 @@ function getPersonalWrapped(discordId, timeFilter = 'all') {
     a.avatar_url = imageMap[a.artist_name.toLowerCase()]?.image_url || null;
   }
 
+  // Distinct counts and the plays-per-hour curve for the Wrapped page (hours are Istanbul time, UTC+3, no daylight saving).
+  const extra = db.prepare(`
+    SELECT
+      COUNT(DISTINCT track_id) as distinct_tracks,
+      COUNT(DISTINCT artist_name COLLATE NOCASE) as distinct_artists,
+      COUNT(DISTINCT strftime('%Y-%m-%d', played_at + 10800, 'unixepoch')) as active_days
+    FROM spotify_scrobbles
+    WHERE discord_id = ? ${sourceClause} ${timeClause}
+  `).get(discordId);
+  const hours = new Array(24).fill(0);
+  db.prepare(`
+    SELECT CAST(strftime('%H', played_at + 10800, 'unixepoch') AS INTEGER) as h, COUNT(*) as n
+    FROM spotify_scrobbles
+    WHERE discord_id = ? ${sourceClause} ${timeClause}
+    GROUP BY h
+  `).all(discordId).forEach(r => { if (r.h >= 0 && r.h < 24) hours[r.h] = r.n; });
+
   return {
     total_scrobbles: totals ? totals.total_scrobbles : 0,
     total_minutes: totals ? totals.total_minutes : 0,
+    distinct_tracks: extra ? extra.distinct_tracks : 0,
+    distinct_artists: extra ? extra.distinct_artists : 0,
+    active_days: extra ? extra.active_days : 0,
+    hours,
     top_artists: topArtists || [],
     top_tracks: topTracks || [],
     top_genres: calculateTopGenres(topArtists),
@@ -1482,12 +1490,27 @@ function revokeDbFeatureAccess(featureName, discordId) {
   return db.prepare('DELETE FROM feature_access WHERE feature_name = ? AND discord_id = ?').run(featureName, String(discordId)).changes > 0;
 }
 
+// Sessions: a token issued at or before not_before (seconds, the JWT's iat) is no longer accepted. Logging out sets it to now.
+function revokeSessions(discordId, nowSec = Math.floor(Date.now() / 1000)) {
+  if (!discordId) return;
+  getDb().prepare(`INSERT INTO session_revocations (discord_id, not_before) VALUES (?, ?)
+    ON CONFLICT(discord_id) DO UPDATE SET not_before = MAX(session_revocations.not_before, excluded.not_before)`).run(String(discordId), nowSec);
+}
+function getSessionNotBefore(discordId) {
+  if (!dbInstance) return 0; // no database open (unit tests): getDb() would open the default file
+  const row = getDb().prepare('SELECT not_before FROM session_revocations WHERE discord_id = ?').get(String(discordId));
+  return row ? row.not_before : 0;
+}
+
 module.exports = {
+  revokeSessions,
+  getSessionNotBefore,
   initDb,
   getDb,
   insertClip,
   updateClipCategory,
   getClipByMessageId,
+  getClipGameCounts,
   getClips,
   insertImage,
   getImages,
@@ -1497,9 +1520,7 @@ module.exports = {
   updateClipVaultBlob,
   getStats,
   getPublicClipCount,
-  addVoiceSeconds,
   getPublicVcHours,
-  getVcStatsRaw,
   deleteClip,
   deleteImage,
   updateClipCaption,
@@ -1512,7 +1533,6 @@ module.exports = {
   updateSpotifyTokens,
   updateSpotifyLastPolled,
   upsertDiscordUser,
-  upsertDiscordUsersBatch,
   getDiscordUser,
   insertScrobbles,
   updateScrobbleListened,
@@ -1525,7 +1545,6 @@ module.exports = {
   getArtistImages,
   saveArtistGenres,
   getArtistGenres,
-  formatGenreName,
   calculateTopGenres,
   getListeningTrends,
   getQuotes,
@@ -1545,6 +1564,11 @@ module.exports = {
   revokeDbFeatureAccess,
   getFilterTimeRange,
   buildTimeFilterClause,
+  istanbulStart,
+  istanbulYear,
+  upsertDiscordUsersBatch,
+  addVoiceSeconds,
+  getVcStatsRaw,
   closeDb
 };
 

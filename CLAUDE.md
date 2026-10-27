@@ -9,9 +9,7 @@ Discord bot for Aşık Vestel. Shared context (services, VPS, deploys, data rule
 
 ## Shared modules
 
-`crypto.js`, `vaultStorage.js`, `vaultWorker.js`, `chatBridge.js`, `parser.js`, `discordSpotifyTracker.js`, `cdnRefresher.js` and `dynamicDataDefaults.js` must be byte-identical to `../website/backend/src/`. The bot has no `statsSync.js` (the website writes `stats.json`). The Website session leads changes to these: agree first, then copy its file unchanged and check the sha256.
-
-`db.js` is **not** a byte-identical twin: the copies diverge on purpose (the website has `session_revocations`, the bot has `addVoiceSeconds`/`getVcStatsRaw`). Never copy one over the other; only the table schema must stay compatible.
+`crypto.js`, `vaultStorage.js`, `vaultWorker.js`, `chatBridge.js`, `parser.js`, `discordSpotifyTracker.js`, `cdnRefresher.js`, `dynamicDataDefaults.js` and `db.js` must be byte-identical to `../website/backend/src/`. The bot has no `statsSync.js` (the website writes `stats.json`). `db.js` holds the queries of both apps (the bot's voice and user-sync ones, the website's sessions and Wrapped ones), so unused functions on either side are expected. The Website session leads changes to these: agree first, then copy its file unchanged and check the sha256.
 
 ## Tooling
 
@@ -40,7 +38,7 @@ Discord bot for Aşık Vestel. Shared context (services, VPS, deploys, data rule
 ## Guardrails
 
 - `ssh`, `scp`, `./deploy.sh` and `bash deploy.sh` always ask the user first.
-- A PostToolUse hook (`~/.claude/hooks/netcup-twin-modules.sh`) warns when an edited shared module differs from its website twin. For `db.js` the warning is a reminder to check schema compatibility, not to make the files identical.
+- A PostToolUse hook (`~/.claude/hooks/netcup-twin-modules.sh`) warns when an edited shared module differs from its website twin, `db.js` included.
 - `gh` isn't installed: no PRs. Push only with the user's OK.
 
 ## Code map (`src/`)
