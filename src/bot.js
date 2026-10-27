@@ -24,6 +24,7 @@ const { initDiscordSpotifyTracker } = require('./discordSpotifyTracker');
 const { chatBridge } = require('./chatBridge');
 const vaultStorage = require('./vaultStorage');
 const { fetchMediaBuffer } = require('./vaultWorker');
+const { createQueue } = require('./vaultQueue');
 const {
   createClipEmbed,
   createImageEmbed,
@@ -36,15 +37,27 @@ const {
   BOT_COLORS
 } = require('./botEmbeds');
 
+const vaultCopies = createQueue({ maxActive: 2, maxQueued: 50 });
+const COPY_RETRY_DELAYS_MS = [10_000, 120_000];
+
 // Fetch a just-inserted row's media and store it encrypted. Skipped when the insert was
 // ignored as a duplicate: lastInsertRowid then still holds an older, unrelated row's id.
-function encryptToVault(url, insertResult, saveBlobId) {
+// Copies run two at a time; a failed copy is retried twice, then left for `node src/vaultWorker.js --migrate`.
+function encryptToVault(url, insertResult, saveBlobId, attempt = 0) {
   if (!insertResult || !insertResult.changes || !url || !url.startsWith('http')) return null;
   const rowId = insertResult.lastInsertRowid;
-  return fetchMediaBuffer(url)
+  const queued = vaultCopies(() => fetchMediaBuffer(url)
     .then((buf) => vaultStorage.encryptAndSaveBlob(buf))
     .then(({ blobId }) => saveBlobId(rowId, blobId))
-    .catch((err) => console.warn(`[Bot] Vault encryption failed for row ${rowId}:`, err.message));
+    .catch((err) => {
+      console.warn(`[Bot] Vault encryption failed for row ${rowId}:`, err.message);
+      const delay = COPY_RETRY_DELAYS_MS[attempt];
+      if (delay !== undefined) {
+        setTimeout(() => encryptToVault(url, insertResult, saveBlobId, attempt + 1), delay).unref();
+      }
+    }));
+  if (!queued) console.warn(`[Bot] Vault copy queue is full; row ${rowId} has no vault copy yet.`);
+  return queued;
 }
 
 function createBotClient(config) {
@@ -73,6 +86,17 @@ function createBotClient(config) {
       AutoModerationRuleManager: 0
     })
   });
+
+  // /clip and /resim-ekle each start a vault copy; one member can't spam them (the admin is exempt).
+  const lastUploadAt = new Map();
+  function onUploadCooldown(user) {
+    if (isAuthorizedAdmin(user, config)) return false;
+    const now = Date.now();
+    if (now - (lastUploadAt.get(user.id) || 0) < 10_000) return true;
+    lastUploadAt.set(user.id, now);
+    return false;
+  }
+  const cooldownAlert = () => createStatusAlertEmbed({ type: 'warning', title: 'Biraz Bekle', message: 'Lütfen 10 saniye bekleyip tekrar deneyin.' });
 
   // Debounced user sync queue to minimize SQLite disk writes
   const pendingUsers = new Map();
@@ -273,6 +297,7 @@ function createBotClient(config) {
   async function handleCommand(interaction) {
 
     if (interaction.commandName === 'resim-ekle') {
+      if (onUploadCooldown(interaction.user)) return interaction.reply({ ...cooldownAlert(), ephemeral: true });
       await interaction.deferReply({ ephemeral: false });
 
       const file = interaction.options.getAttachment('dosya');
@@ -315,6 +340,7 @@ function createBotClient(config) {
     }
 
     if (interaction.commandName === 'clip') {
+      if (onUploadCooldown(interaction.user)) return interaction.reply({ ...cooldownAlert(), ephemeral: true });
       await interaction.deferReply({ ephemeral: false });
 
       const category = interaction.options.getString('kategori');
@@ -475,7 +501,7 @@ function createBotClient(config) {
       }
 
       await interaction.deferReply({ ephemeral: true });
-      let currentStats = getSystemStats(config);
+      let currentStats = await getSystemStats(config);
       let currentPage = 'vps';
 
       const initialEmbed = createSystemPageEmbed({
@@ -488,7 +514,7 @@ function createBotClient(config) {
 
       const response = await interaction.editReply({
         embeds: [initialEmbed],
-        components: Array.isArray(initialRow) ? initialRow : [initialRow]
+        components: initialRow
       });
 
       // Interactive component collector for 5 minutes (300,000 ms)
@@ -500,19 +526,14 @@ function createBotClient(config) {
 
         collector.on('collect', async i => {
           try {
+            await i.deferUpdate(); // collecting the stats can take a few seconds; Discord wants an answer within 3
             if (i.customId === 'sys_page_vps') currentPage = 'vps';
             else if (i.customId === 'sys_page_media') currentPage = 'media';
             else if (i.customId === 'sys_page_web') currentPage = 'web';
             else if (i.customId === 'sys_page_docker') currentPage = 'docker';
             else if (i.customId === 'sys_page_services') currentPage = 'services';
-            else if (i.customId === 'sys_page_refresh') {
-              currentStats = getSystemStats(config);
-            }
 
-            // Keep metrics fresh on page switch
-            if (i.customId !== 'sys_page_refresh') {
-              currentStats = getSystemStats(config);
-            }
+            currentStats = await getSystemStats(config);
 
             const pageEmbed = createSystemPageEmbed({
               page: currentPage,
@@ -522,10 +543,7 @@ function createBotClient(config) {
             });
             const pageRow = createSystemActionRow(currentPage, false);
 
-            await i.update({
-              embeds: [pageEmbed],
-              components: Array.isArray(pageRow) ? pageRow : [pageRow]
-            });
+            await i.editReply({ embeds: [pageEmbed], components: pageRow });
           } catch (compErr) {
             console.error('[System Command Component Error]', compErr);
           }
@@ -534,9 +552,7 @@ function createBotClient(config) {
         collector.on('end', async () => {
           try {
             const disabledRow = createSystemActionRow(currentPage, true);
-            await interaction.editReply({
-              components: Array.isArray(disabledRow) ? disabledRow : [disabledRow]
-            }).catch(() => {});
+            await interaction.editReply({ components: disabledRow }).catch(() => {});
           } catch {}
         });
       } catch (colErr) {
@@ -628,7 +644,6 @@ function createBotClient(config) {
     }
 
     if (interaction.commandName === 'feature') {
-      const adminId = config.ADMIN_DISCORD_USER_ID || '735152588801966132';
       if (!isAuthorizedAdmin(interaction.user, config)) {
         return interaction.reply({
           ...createStatusAlertEmbed({
@@ -673,7 +688,7 @@ function createBotClient(config) {
           }));
         }
 
-        if (targetUser.id === adminId || targetUser.id === '735152588801966132') {
+        if (targetUser.id === config.ADMIN_DISCORD_USER_ID) {
           return interaction.editReply(createStatusAlertEmbed({
             type: 'error',
             title: 'İşlem Engellendi',

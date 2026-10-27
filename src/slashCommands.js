@@ -70,7 +70,9 @@ const commands = [
     .setDescription('Kanalın geçmiş mesajlarını Discord kurallarına uygun yavaş hızda tarar ve klipleri kaydeder.')
     .addIntegerOption(opt =>
       opt.setName('adet')
-         .setDescription('Taranacak maksimum mesaj sayısı (Varsayılan: 200).')
+         .setDescription('Taranacak maksimum mesaj sayısı (Varsayılan: 200, en fazla 2000).')
+         .setMinValue(1)
+         .setMaxValue(2000)
          .setRequired(false)),
 
   new SlashCommandBuilder()

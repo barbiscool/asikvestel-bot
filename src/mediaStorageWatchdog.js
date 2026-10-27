@@ -11,7 +11,6 @@
  */
 
 const fs = require('fs');
-const path = require('path');
 const { EmbedBuilder } = require('discord.js');
 const { BOT_COLORS, createGaugeBar } = require('./botEmbeds');
 
@@ -38,28 +37,10 @@ function formatBytes(bytes) {
 }
 
 /**
- * Resolves the absolute path of media.db on the VPS.
+ * Absolute path of media.db: config already falls back to the VPS location.
  */
 function resolveMediaDbPath(config = {}) {
-  if (config.MEDIA_DB_PATH) {
-    return config.MEDIA_DB_PATH;
-  }
-
-  const candidates = [
-    process.env.MEDIA_DB_PATH,
-    '/var/lib/asikvestel/media.db',
-    '/var/www/media-host/data/media.db',
-    path.resolve(__dirname, '../../media-host/data/media.db'),
-    path.resolve(__dirname, '../../../media-host/data/media.db')
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return candidates[0] || '/var/lib/asikvestel/media.db';
+  return config.MEDIA_DB_PATH || '/var/lib/asikvestel/media.db';
 }
 
 /**
@@ -224,7 +205,8 @@ async function checkAndAlertStorage(client, config = {}, force = false) {
     return false; // Storage is healthy, no alert needed
   }
 
-  const adminUserId = config.ADMIN_DISCORD_USER_ID || '735152588801966132';
+  const adminUserId = config.ADMIN_DISCORD_USER_ID;
+  if (!adminUserId) return false;
 
   try {
     const adminUser = await client.users.fetch(adminUserId);

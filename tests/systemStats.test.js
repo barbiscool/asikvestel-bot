@@ -3,7 +3,6 @@ const assert = require('node:assert');
 const {
   isAuthorizedAdmin,
   getSystemStats,
-  formatSystemStatsMessage,
   readDockerContainers,
   readPm2Processes,
   readSystemServices
@@ -11,7 +10,7 @@ const {
 
 // Future system administration, VPS diagnostics, and telemetry tests should be added to this suite.
 
-test('System Stats: admin authorization, telemetry metric collection, and Discord embed formatting', () => {
+test('System Stats: admin authorization and telemetry metric collection', async () => {
   const config = { ADMIN_DISCORD_USER_ID: '9876543210' };
 
   // 1. Admin authorization checks
@@ -25,26 +24,20 @@ test('System Stats: admin authorization, telemetry metric collection, and Discor
   assert.strictEqual(isAuthorizedAdmin(undefined, config), false);
 
   // 2. Individual telemetry collectors
-  const dockerStats = readDockerContainers();
-  assert.ok(dockerStats.nighty !== undefined);
-  assert.ok(dockerStats.vaultwarden !== undefined);
-  assert.ok(dockerStats.mcRouter !== undefined);
-  assert.ok(dockerStats.minecraft !== undefined);
+  const dockerStats = await readDockerContainers();
   assert.ok(Array.isArray(dockerStats.allContainers));
 
-  const pm2Stats = readPm2Processes();
+  const pm2Stats = await readPm2Processes();
   assert.ok(typeof pm2Stats.available === 'boolean');
   assert.ok(Array.isArray(pm2Stats.processes));
   assert.ok(typeof pm2Stats.totalMemoryBytes === 'number');
 
-  const svcStats = readSystemServices();
-  assert.ok(Array.isArray(svcStats.domains));
-  assert.strictEqual(svcStats.domains.length, 5);
+  const svcStats = await readSystemServices();
   assert.ok(svcStats.systemd.nginx !== undefined);
   assert.ok(svcStats.systemd.wings !== undefined);
 
   // 3. Full telemetry collection aggregation
-  const stats = getSystemStats();
+  const stats = await getSystemStats();
   assert.ok(stats.cpu.cores >= 1);
   assert.ok(typeof stats.cpu.model === 'string');
   assert.strictEqual(stats.cpu.loadAvg.length, 3);
@@ -58,26 +51,13 @@ test('System Stats: admin authorization, telemetry metric collection, and Discor
   assert.ok(stats.uptime.processUptimeSeconds >= 0);
   assert.ok(typeof stats.os.platform === 'string');
   assert.ok(typeof stats.os.nodeVersion === 'string');
-  assert.ok(stats.vaultwarden !== undefined);
-  assert.ok(stats.mcRouter !== undefined);
+  assert.ok(Array.isArray(stats.allContainers));
+  assert.ok(Array.isArray(stats.processGroups));
   assert.ok(stats.pm2 !== undefined);
   assert.ok(stats.services !== undefined);
-
-  // 4. Discord embed formatting
-  const payload = formatSystemStatsMessage(stats);
-  assert.ok(payload.embeds && payload.embeds.length === 1);
-  const embed = payload.embeds[0];
-  assert.strictEqual(embed.title, '🖥️ VPS Sistem & Bot Durumu');
-  assert.ok(embed.fields.length >= 4);
-
-  const fieldTitles = embed.fields.map(f => f.name);
-  assert.ok(fieldTitles.some(t => t.includes('CPU')));
-  assert.ok(fieldTitles.some(t => t.includes('RAM')));
-  assert.ok(fieldTitles.some(t => t.includes('Uptime')));
-  assert.ok(fieldTitles.some(t => t.includes('Bot / Node')));
 });
 
-test('System Stats: multi-page telemetry (vps, media, web, docker, services) and ActionRow buttons', () => {
+test('System Stats: multi-page telemetry (vps, media, web, docker, services) and ActionRow buttons', async () => {
   const { createSystemPageEmbed, createSystemActionRow, createGaugeBar } = require('../src/botEmbeds');
 
   // 1. Gauge bar generation
@@ -86,12 +66,8 @@ test('System Stats: multi-page telemetry (vps, media, web, docker, services) and
   assert.strictEqual(createGaugeBar(100), '▰▰▰▰▰▰▰▰▰▰');
 
   // 2. Enhanced telemetry payload check
-  const stats = getSystemStats();
+  const stats = await getSystemStats();
   assert.ok(stats.disk !== undefined);
-  assert.ok(stats.nighty !== undefined);
-  assert.ok(stats.vaultwarden !== undefined);
-  assert.ok(stats.mcRouter !== undefined);
-  assert.ok(stats.minecraft !== undefined);
   assert.ok(stats.database !== undefined);
   assert.ok(stats.pm2 !== undefined);
   assert.ok(stats.services !== undefined);
@@ -119,52 +95,6 @@ test('System Stats: multi-page telemetry (vps, media, web, docker, services) and
     },
     uptime: { systemUptimeSeconds: 120000, processUptimeSeconds: 45000 },
     os: { platform: 'linux', release: '6.12.107', arch: 'x64', nodeVersion: 'v20.20.2' },
-    nighty: {
-      id: 'f6876914491d',
-      name: 'nighty',
-      image: 'nighty-linux-headless:latest',
-      status: '🟢 Çalışıyor (Healthy)',
-      health: 'Sağlıklı',
-      cpu: '4.5%',
-      mem: '538 MB / 15.6 GB',
-      netIO: '37 MB / 2.9 MB',
-      blockIO: '0B / 330 MB',
-      isOnline: true
-    },
-    vaultwarden: {
-      id: 'a89c2014e712',
-      name: 'vaultwarden',
-      image: 'vaultwarden/server:latest',
-      status: '🟢 Çalışıyor (Healthy)',
-      health: 'Sağlıklı',
-      cpu: '0.2%',
-      mem: '42 MB / 15.6 GB',
-      netIO: '12 MB / 18 MB',
-      blockIO: '0B / 5 MB',
-      isOnline: true
-    },
-    mcRouter: {
-      id: 'c124819ad581',
-      name: 'mc-router',
-      image: 'itzg/mc-router:latest',
-      status: '🟢 Up 4 days',
-      cpu: '0.1%',
-      mem: '18 MB / 15.6 GB',
-      port: '0.0.0.0:25565 (TCP/UDP)',
-      isOnline: true
-    },
-    minecraft: {
-      id: 'bb7b95a59f68',
-      containerName: 'a4bb6cc7-c9df-4e91-b928-bc89db472766',
-      image: 'ghcr.io/ptero-eggs/yolks:java_25',
-      status: '🟢 Çevrimiçi (Aktif)',
-      type: 'Fabric (Java 25)',
-      ports: '62.83.32.164:25565 / 25566 (TCP/UDP)',
-      cpu: '18.6%',
-      mem: '4.05 GB / 6.30 GB',
-      netIO: '120 MB / 450 MB',
-      isOnline: true
-    },
     pm2: {
       available: true,
       processes: [
@@ -178,13 +108,6 @@ test('System Stats: multi-page telemetry (vps, media, web, docker, services) and
       totalMemoryBytes: 243 * 1024 * 1024
     },
     services: {
-      domains: [
-        { domain: 'asikvestel.org', service: 'Web Studio & API', target: 'http://127.0.0.1:4000', ssl: true },
-        { domain: 'media.asikvestel.org', service: 'CDN Medya Host', target: 'http://127.0.0.1:4500', ssl: true },
-        { domain: 'nighty.asikvestel.org', service: 'Nighty Selfbot Web UI', target: 'http://127.0.0.1:8088', ssl: true },
-        { domain: 'panel.asikvestel.org', service: 'Pterodactyl Game Panel', target: 'http://127.0.0.1:8080', ssl: true },
-        { domain: 'vault.asikvestel.org', service: 'Vaultwarden Parola Kasası', target: 'http://127.0.0.1:8090', ssl: true }
-      ],
       systemd: {
         nginx: '🟢 Aktif',
         wings: '🟢 Aktif',
@@ -249,6 +172,12 @@ test('System Stats: multi-page telemetry (vps, media, web, docker, services) and
   assert.ok(webEmbed.data.fields.some(f => f.value.includes('asikvestel-vault')));
   assert.ok(webEmbed.data.fields.some(f => f.value.includes('asikvestel-media')));
   assert.ok(webEmbed.data.footer.text.includes('Sayfa 3/5'));
+
+  // The web page never invents numbers when PM2 reported nothing
+  const noPm2 = createSystemPageEmbed({ page: 'web', stats: { ...mockDetailedStats, pm2: { processes: [], totalMemoryBytes: 0 } }, formatBytes: fb, formatDuration: fd });
+  const pm2Field = noPm2.data.fields.find(f => f.name.includes('PM2')).value;
+  assert.ok(pm2Field.includes('okunamadı'));
+  assert.ok(!/110 MB|48 MB|85 MB|online/.test(pm2Field));
 
   // 6. Render Page: Docker
   mockDetailedStats.allContainers = [

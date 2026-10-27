@@ -1,15 +1,24 @@
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const { getMediaHostStats } = require('./mediaStorageWatchdog');
+
+const execFileAsync = promisify(execFile);
+
+// Async on purpose: these commands take seconds, and a sync call would freeze the whole bot meanwhile.
+async function run(cmd, args, timeout = 2500) {
+  const { stdout } = await execFileAsync(cmd, args, { timeout, encoding: 'utf8' });
+  return stdout;
+}
 
 /**
  * Admin commands are for the configured admin's Discord ID only. Usernames can be
  * changed and re-registered by someone else, so they are never trusted.
  */
 function isAuthorizedAdmin(user, config = {}) {
-  return !!user && user.id === (config.ADMIN_DISCORD_USER_ID || '735152588801966132');
+  return !!user && !!config.ADMIN_DISCORD_USER_ID && user.id === config.ADMIN_DISCORD_USER_ID;
 }
 
 /**
@@ -171,165 +180,55 @@ function groupProcesses(psText, { containers = [], pm2 = {} } = {}) {
  * Lists every resource-using task on the host. CPU is `ps` pcpu (average over the
  * process lifetime, per core), unlike the live `docker stats` figures.
  */
-function readProcessGroups(containers, pm2) {
+async function readProcessGroups(containers, pm2) {
   try {
-    const out = execSync('ps -eo pid=,rss=,pcpu=,cgroup=', {
-      timeout: 2500,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'ignore']
-    });
-    return groupProcesses(out, { containers, pm2 });
+    return groupProcesses(await run('ps', ['-eo', 'pid=,rss=,pcpu=,cgroup=']), { containers, pm2 });
   } catch {
     return [];
   }
 }
 
 /**
- * Gathers Docker container statistics dynamically for all running services:
- * - Nighty Headless Selfbot
- * - Vaultwarden Password Manager
- * - mc-router Minecraft Traffic Router
- * - Pterodactyl Minecraft Fabric/Java Server
+ * Lists the running Docker containers with live CPU/RAM/IO from `docker stats`.
  */
-function readDockerContainers() {
-  const result = {
-    nighty: {
-      id: '-',
-      name: 'nighty',
-      image: 'nighty-linux-headless:latest',
-      status: 'Çevrimdışı / Tespit Edilemedi',
-      health: 'Bilinmiyor',
-      cpu: '0.0%',
-      mem: '0 MB / 0 MB',
-      netIO: '0B / 0B',
-      blockIO: '0B / 0B',
-      port: '127.0.0.1:8088 -> nighty.asikvestel.org',
-      isOnline: false
-    },
-    vaultwarden: {
-      id: '-',
-      name: 'vaultwarden',
-      image: 'vaultwarden/server:latest',
-      status: 'Çevrimdışı / Tespit Edilemedi',
-      health: 'Bilinmiyor',
-      cpu: '0.0%',
-      mem: '0 MB / 0 MB',
-      netIO: '0B / 0B',
-      blockIO: '0B / 0B',
-      port: '127.0.0.1:8090 -> vault.asikvestel.org',
-      isOnline: false
-    },
-    mcRouter: {
-      id: '-',
-      name: 'mc-router',
-      image: 'itzg/mc-router:latest',
-      status: 'Çevrimdışı / Tespit Edilemedi',
-      cpu: '0.0%',
-      mem: '0 MB / 0 MB',
-      port: '0.0.0.0:25565 (TCP/UDP)',
-      isOnline: false
-    },
-    minecraft: {
-      id: '-',
-      containerName: 'pterodactyl-mc',
-      image: 'ghcr.io/ptero-eggs/yolks:java_25',
-      status: 'Çevrimdışı / Hazırlanıyor',
-      type: 'Fabric (Java 25)',
-      ports: '62.83.32.164:25565 / 25566 (TCP/UDP)',
-      cpu: '0.0%',
-      mem: '0 MB / 0 MB',
-      netIO: '0B / 0B',
-      blockIO: '0B / 0B',
-      isOnline: false
-    },
-    allContainers: []
-  };
-
+async function readDockerContainers() {
+  const allContainers = [];
   try {
-    // 1. Query running containers via docker ps
-    const psOutput = execSync('docker ps --no-trunc --format "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"', {
-      timeout: 2500,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'ignore']
-    });
+    const [psOutput, statsOutput] = await Promise.all([
+      run('docker', ['ps', '--no-trunc', '--format', '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}']),
+      run('docker', ['stats', '--no-stream', '--format', '{{.ID}}\t{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}'])
+    ]);
 
-    const psMap = new Map();
-    const psLines = psOutput.trim().split('\n').filter(Boolean);
-    for (const line of psLines) {
-      const [id, names, image, status, ports] = line.split('\t');
-      const info = { id: id.slice(0, 12), fullId: id, name: names, image, status, ports };
-      psMap.set(info.id, info);
-      psMap.set(names, info);
+    const psById = new Map();
+    for (const line of psOutput.trim().split('\n').filter(Boolean)) {
+      const [id, name, image, status, ports] = line.split('\t');
+      psById.set(id.slice(0, 12), { fullId: id, name, image, status, ports });
     }
 
-    // 2. Query resource stats via docker stats
-    const statsOutput = execSync('docker stats --no-stream --format "{{.ID}}\t{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}"', {
-      timeout: 2500,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'ignore']
-    });
-
-    const lines = statsOutput.trim().split('\n').filter(Boolean);
-    for (const line of lines) {
+    for (const line of statsOutput.trim().split('\n').filter(Boolean)) {
       const parts = line.split('\t');
       if (parts.length < 4) continue;
-      const [idRaw, name, cpuPerc, memUsageStr, netIO, blockIO] = parts;
-      const shortId = idRaw.slice(0, 12);
-      const psInfo = psMap.get(shortId) || psMap.get(name) || {};
-      const statusText = psInfo.status || '🟢 Up';
-
-      const containerObj = {
-        id: shortId,
+      const [idRaw, name, cpu, mem, netIO, blockIO] = parts;
+      const id = idRaw.slice(0, 12);
+      const ps = psById.get(id) || {};
+      allContainers.push({
+        id,
+        fullId: ps.fullId || '',
         name,
-        image: psInfo.image || 'bilinmiyor',
-        status: `🟢 ${statusText}`,
-        cpu: cpuPerc || '0%',
-        mem: memUsageStr || '0 MB',
+        label: containerLabel(name, ps.image),
+        image: ps.image || 'bilinmiyor',
+        status: `🟢 ${ps.status || 'Up'}`,
+        cpu: cpu || '0%',
+        mem: mem || '0 MB',
         netIO: netIO || '0B / 0B',
         blockIO: blockIO || '0B / 0B',
-        ports: psInfo.ports || '',
-        fullId: psInfo.fullId || '',
-        label: containerLabel(name, psInfo.image),
+        ports: ps.ports || '',
         isOnline: true
-      };
-
-      result.allContainers.push(containerObj);
-
-      const nameLower = (name || '').toLowerCase();
-      const imageLower = (psInfo.image || '').toLowerCase();
-
-      if (nameLower.includes('nighty') || imageLower.includes('nighty')) {
-        result.nighty = {
-          ...containerObj,
-          image: psInfo.image || 'nighty-linux-headless:latest',
-          health: statusText.includes('healthy') ? 'Sağlıklı' : 'Aktif',
-          port: '127.0.0.1:8088 -> nighty.asikvestel.org'
-        };
-      } else if (nameLower.includes('vaultwarden') || imageLower.includes('vaultwarden')) {
-        result.vaultwarden = {
-          ...containerObj,
-          image: psInfo.image || 'vaultwarden/server:latest',
-          health: statusText.includes('healthy') ? 'Sağlıklı' : 'Aktif',
-          port: '127.0.0.1:8090 -> vault.asikvestel.org'
-        };
-      } else if (nameLower.includes('mc-router') || imageLower.includes('mc-router')) {
-        result.mcRouter = {
-          ...containerObj,
-          image: psInfo.image || 'itzg/mc-router:latest',
-          port: '0.0.0.0:25565 (TCP/UDP)'
-        };
-      } else if (imageLower.includes('ptero') || imageLower.includes('yolks') || /^[0-9a-f-]{36}$/.test(nameLower)) {
-        result.minecraft = {
-          ...containerObj,
-          containerName: name,
-          type: imageLower.includes('25') ? 'Fabric (Java 25)' : 'Fabric (Java 21)',
-          ports: '62.83.32.164:25565 / 25566 (TCP/UDP)'
-        };
-      }
+      });
     }
   } catch {}
 
-  return result;
+  return { allContainers };
 }
 
 /**
@@ -338,7 +237,7 @@ function readDockerContainers() {
  * - asikvestel-media (Media Host CDN on port 4500)
  * - asikvestel-bot (Discord Bot Daemon)
  */
-function readPm2Processes() {
+async function readPm2Processes() {
   const result = {
     available: false,
     processes: [],
@@ -349,11 +248,7 @@ function readPm2Processes() {
   };
 
   try {
-    const rawJson = execSync('pm2 jlist', {
-      timeout: 2500,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'ignore']
-    });
+    const rawJson = await run('pm2', ['jlist']);
 
     const parsed = JSON.parse(rawJson);
     if (Array.isArray(parsed)) {
@@ -412,49 +307,33 @@ function readDatabaseInfo(config = {}) {
 }
 
 /**
- * Returns static & detected systemd services and 5 proxied domains.
+ * systemd state of the services the admin cares about. "Bilinmiyor" when systemctl can't be read,
+ * so a failed check never shows up as green.
  */
-function readSystemServices() {
-  const domains = [
-    { domain: 'asikvestel.org', service: 'Web Studio & API', target: 'http://127.0.0.1:4000', ssl: true },
-    { domain: 'media.asikvestel.org', service: 'CDN Medya Host', target: 'http://127.0.0.1:4500', ssl: true },
-    { domain: 'nighty.asikvestel.org', service: 'Nighty Selfbot Web UI', target: 'http://127.0.0.1:8088', ssl: true },
-    { domain: 'panel.asikvestel.org', service: 'Pterodactyl Game Panel', target: 'http://127.0.0.1:8080', ssl: true },
-    { domain: 'vault.asikvestel.org', service: 'Vaultwarden Parola Kasası', target: 'http://127.0.0.1:8090', ssl: true }
-  ];
-
-  let nginxStatus = '🟢 Aktif';
-  let wingsStatus = '🟢 Aktif';
-  let mariadbStatus = '🟢 Aktif';
-  let redisStatus = '🟢 Aktif';
-
+async function readSystemServices() {
+  const units = ['nginx', 'wings', 'mariadb', 'redis-server'];
+  const states = units.map(() => '⚪ Bilinmiyor');
   try {
-    const s = execSync('systemctl is-active nginx wings mariadb redis-server 2>/dev/null || true', {
-      timeout: 1500,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'ignore']
-    }).trim().split('\n');
-    if (s[0] && s[0] !== 'active') nginxStatus = '🔴 Pasif';
-    if (s[1] && s[1] !== 'active') wingsStatus = '🔴 Pasif';
-    if (s[2] && s[2] !== 'active') mariadbStatus = '🔴 Pasif';
-    if (s[3] && s[3] !== 'active') redisStatus = '🔴 Pasif';
+    let out;
+    try {
+      out = await run('systemctl', ['is-active', ...units], 1500);
+    } catch (err) {
+      out = err.stdout; // is-active exits non-zero when any unit is down, but still prints each state
+    }
+    const lines = String(out || '').trim().split('\n');
+    if (lines.length === units.length) {
+      lines.forEach((state, i) => { states[i] = state === 'active' ? '🟢 Aktif' : '🔴 Pasif'; });
+    }
   } catch {}
 
-  return {
-    domains,
-    systemd: {
-      nginx: nginxStatus,
-      wings: wingsStatus,
-      mariadb: mariadbStatus,
-      redis: redisStatus
-    }
-  };
+  const [nginx, wings, mariadb, redis] = states;
+  return { systemd: { nginx, wings, mariadb, redis } };
 }
 
 /**
  * Gathers system hardware, memory, uptime, process, Docker, PM2, and database metrics.
  */
-function getSystemStats(config = {}) {
+async function getSystemStats(config = {}) {
   const cpus = os.cpus() || [];
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
@@ -463,11 +342,13 @@ function getSystemStats(config = {}) {
 
   const meminfo = readMemInfo();
   const disk = readDiskUsage();
-  const containers = readDockerContainers();
-  const pm2 = readPm2Processes();
-  const processGroups = readProcessGroups(containers.allContainers, pm2);
+  const [containers, pm2, services] = await Promise.all([
+    readDockerContainers(),
+    readPm2Processes(),
+    readSystemServices()
+  ]);
+  const processGroups = await readProcessGroups(containers.allContainers, pm2);
   const database = readDatabaseInfo(config);
-  const services = readSystemServices();
   const mediaHost = getMediaHostStats(config);
 
   const availableMem = meminfo.available > 0 ? meminfo.available : freeMem;
@@ -505,83 +386,12 @@ function getSystemStats(config = {}) {
       arch: os.arch(),
       nodeVersion: process.version
     },
-    nighty: containers.nighty,
-    vaultwarden: containers.vaultwarden,
-    mcRouter: containers.mcRouter,
-    minecraft: containers.minecraft,
     allContainers: containers.allContainers,
     processGroups,
     pm2,
     database,
     services,
     mediaHost
-  };
-}
-
-/**
- * Builds the Discord Embed response payload for the /system command.
- */
-function formatSystemStatsMessage(stats) {
-  const load1 = stats.cpu.loadAvg[0].toFixed(2);
-  const load5 = stats.cpu.loadAvg[1].toFixed(2);
-  const load15 = stats.cpu.loadAvg[2].toFixed(2);
-
-  const ramUsed = formatBytes(stats.memory.usedBytes);
-  const ramTotal = formatBytes(stats.memory.totalBytes);
-  const ramFree = formatBytes(stats.memory.freeBytes);
-
-  const botRss = formatBytes(stats.memory.processRssBytes);
-  const botHeap = formatBytes(stats.memory.processHeapUsedBytes);
-
-  const sysUptime = formatDuration(stats.uptime.systemUptimeSeconds);
-  const botUptime = formatDuration(stats.uptime.processUptimeSeconds);
-
-  let embedColor = 0x22c55e; // Green
-  if (stats.memory.usedPercent > 90) {
-    embedColor = 0xef4444; // Red
-  } else if (stats.memory.usedPercent > 75) {
-    embedColor = 0xf59e0b; // Amber
-  }
-
-  const embed = {
-    title: '🖥️ VPS Sistem & Bot Durumu',
-    description: `Aşık Vestel VPS ana makine kaynak ve çalışma istatistikleri.`,
-    color: embedColor,
-    fields: [
-      {
-        name: '⚙️ CPU & İşlemci',
-        value: `**Çekirdek:** ${stats.cpu.cores} vCPU\n**Model:** ${stats.cpu.model.split('@')[0].trim()}\n**Yük (1/5/15 dk):** \`${load1}\`, \`${load5}\`, \`${load15}\``,
-        inline: true
-      },
-      {
-        name: '🧠 RAM (Bellek)',
-        value: `**Kullanım:** %${stats.memory.usedPercent} (${ramUsed} / ${ramTotal})\n**Boş:** ${ramFree}`,
-        inline: true
-      },
-      {
-        name: '🤖 Bot / Node.js Süreci',
-        value: `**RSS Bellek:** ${botRss}\n**Heap:** ${botHeap}\n**Node:** ${stats.os.nodeVersion}`,
-        inline: true
-      },
-      {
-        name: '⏱️ Çalışma Süresi (Uptime)',
-        value: `**VPS Uptime:** ${sysUptime}\n**Bot Uptime:** ${botUptime}`,
-        inline: true
-      },
-      {
-        name: '🌐 İşletim Sistemi & Portlar',
-        value: `${stats.os.platform} (${stats.os.arch}) - ${stats.os.release}\n**Nginx Proxy:** 5 Aktif Domain (80/443/8443)`,
-        inline: true
-      }
-    ],
-    footer: {
-      text: 'Aşık Vestel Vault Bot • Yalnızca @imbarb yetkilidir'
-    },
-    timestamp: new Date().toISOString()
-  };
-
-  return {
-    embeds: [embed]
   };
 }
 
@@ -594,6 +404,5 @@ module.exports = {
   readSystemServices,
   groupProcesses,
   containerLabel,
-  getSystemStats,
-  formatSystemStatsMessage
+  getSystemStats
 };

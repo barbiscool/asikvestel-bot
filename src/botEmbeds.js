@@ -246,7 +246,7 @@ function createMediaHostStatsEmbed({ rawData, stats, config = {} }) {
     })
     .setTitle('☁️ media.asikvestel.org Depolama')
     .setDescription(
-      `**Medya Sunucusu:** \`🟢 Aktif\` • **Host:** \`62.83.32.164:4500\`\n` +
+      `**Host:** \`62.83.32.164:4500\`\n` +
       `*Yüklenen medya (disk), host NVMe disk alanı ve kullanıcı istatistikleri.*`
     )
     .addFields(
@@ -332,7 +332,7 @@ function createSystemPageEmbed({ page = 'vps', stats, formatBytes, formatDuratio
       .setColor(statusColor)
       .setTitle('☁️ Aşık Vestel • Medya Sunucusu Depolama')
       .setDescription(
-        `**Alan Adı:** \`media.asikvestel.org\` (:4500) • **Durum:** \`🟢 Aktif\`\n` +
+        `**Alan Adı:** \`media.asikvestel.org\` (:4500)\n` +
         `*Yüklenen medya (disk), host NVMe disk alanı ve kullanıcı istatistikleri.*`
       )
       .addFields(
@@ -380,6 +380,8 @@ function createSystemPageEmbed({ page = 'vps', stats, formatBytes, formatDuratio
     const mediaApp = pm2.mediaApp;
     const botApp = pm2.botApp;
     const totalPm2Mem = fb(pm2.totalMemoryBytes || 0);
+    // No made-up numbers: an app PM2 didn't report is shown as unreadable.
+    const pm2Line = (app) => (app ? `\`${app.status}\` • \`${fb(app.memoryBytes)}\`` : '`okunamadı`');
 
     return new EmbedBuilder()
       .setColor(BOT_COLORS.PRIMARY)
@@ -389,9 +391,9 @@ function createSystemPageEmbed({ page = 'vps', stats, formatBytes, formatDuratio
         {
           name: '🤖 Node.js & PM2 Süreci',
           value:
-            `• **asikvestel-vault:** \`${vaultApp?.status || 'online'}\` (:4000) • \`${vaultApp ? fb(vaultApp.memoryBytes) : '110 MB'}\`\n` +
-            `• **asikvestel-media:** \`${mediaApp?.status || 'online'}\` (:4500) • \`${mediaApp ? fb(mediaApp.memoryBytes) : '48 MB'}\`\n` +
-            `• **asikvestel-bot:** \`${botApp?.status || 'online'}\` • \`${botApp ? fb(botApp.memoryBytes) : '85 MB'}\` (Uptime: \`${botUptime}\`)\n` +
+            `• **asikvestel-vault:** ${pm2Line(vaultApp)} (:4000)\n` +
+            `• **asikvestel-media:** ${pm2Line(mediaApp)} (:4500)\n` +
+            `• **asikvestel-bot:** ${pm2Line(botApp)} (Uptime: \`${botUptime}\`)\n` +
             `• **Toplam PM2 RAM:** \`${totalPm2Mem}\``,
           inline: false
         },
@@ -402,13 +404,8 @@ function createSystemPageEmbed({ page = 'vps', stats, formatBytes, formatDuratio
         },
         {
           name: '🗄️ SQLite Veritabanı',
-          value: `• **Ana DB:** \`${dbSize}\`\n• **WAL:** \`${walSize}\`\n• **Yol:** \`/var/lib/asikvestel/clips.db\``,
+          value: `• **Ana DB:** \`${dbSize}\`\n• **WAL:** \`${walSize}\`\n• **Yol:** \`${stats.database?.path || '-'}\``,
           inline: true
-        },
-        {
-          name: '📡 Canlı Entegrasyonlar',
-          value: `• **Spotify Radar:** \`10s Radar / 300s Döngü\`\n• **Web Chat Köprüsü:** \`Aktif (Çift Sunucu)\`\n• **Medya Host Depolama:** \`/var/www/media (CDN Aktif)\``,
-          inline: false
         }
       )
       .setFooter({ text: 'Sayfa 3/5 • Web & Bot Telemetrisi | Aşık Vestel' })
@@ -567,20 +564,7 @@ function createSystemActionRow(activePage = 'vps', disabled = false) {
       .setStyle(ButtonStyle.Link)
   );
 
-  const rows = [navRow, actionRow];
-  // Backward compatibility: provide .components referencing navRow.components
-  rows.components = navRow.components;
-  return rows;
-}
-
-/**
- * Modern aesthetic embed for System Telemetry (/system)
- * Default wrapper providing both embed and pagination ActionRows.
- */
-function createSystemEmbed({ stats, formatBytes, formatDuration }) {
-  const embed = createSystemPageEmbed({ page: 'vps', stats, formatBytes, formatDuration });
-  const rows = createSystemActionRow('vps', false);
-  return { embeds: [embed], components: Array.isArray(rows) ? rows : [rows] };
+  return [navRow, actionRow];
 }
 
 /**
@@ -621,6 +605,5 @@ module.exports = {
   createMediaHostStatsEmbed,
   createSystemPageEmbed,
   createSystemActionRow,
-  createSystemEmbed,
   createStatusAlertEmbed
 };

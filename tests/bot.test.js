@@ -110,3 +110,18 @@ test('/resim-ekle rejects a file that is not an image', async () => {
   assert.strictEqual(i.calls.length, 1);
   assert.match(i.calls[0].embeds[0].data.title, /Geçersiz Medya/);
 });
+
+test('/clip and /resim-ekle ask a member to wait 10 seconds between uploads (admin exempt)', async () => {
+  const client = createBotClient({ BOT_TOKEN: '', ADMIN_DISCORD_USER_ID: ADMIN_ID });
+  const run = async (userId) => {
+    const i = fakeInteraction('clip', { userId, strings: { kategori: 'Genel' } });
+    i.options.getAttachment = () => ({ id: 'a1', name: 'notes.pdf', contentType: 'application/pdf', url: 'https://cdn.discordapp.com/notes.pdf' });
+    await Promise.all(client.listeners('interactionCreate').map((fn) => fn(i)));
+    return i.calls[0].embeds[0].data.title;
+  };
+  assert.match(await run('member'), /Geçersiz Medya/); // first try goes through (then fails the video check)
+  assert.match(await run('member'), /Biraz Bekle/);
+  assert.match(await run(ADMIN_ID), /Geçersiz Medya/);
+  assert.match(await run(ADMIN_ID), /Geçersiz Medya/);
+  client.removeAllListeners();
+});

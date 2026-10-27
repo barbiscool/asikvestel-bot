@@ -54,13 +54,13 @@ Entry: `index.js` (init DB, check `DISCORD_BOT_TOKEN` and `DB_ENCRYPTION_KEY`, l
 | `botEmbeds.js` | All embed/row builders (clips, images, stats, system, alerts). `/system` has 5 pages: `vps` (overview + top RAM users), `media`, `web` (PM2 apps), `docker` (every container), `services` (everything else, from `systemStats.processGroups`) |
 | `systemStats.js`, `mediaStorageWatchdog.js` | Admin-only host stats. `processGroups` buckets every process by cgroup (container, PM2 app, systemd unit, SSH session) with Turkish display names (`UNIT_LABELS`, `PM2_LABELS`, `containerLabel`); add a name there when a new service appears on the VPS. Docker/PM2/systemd and media-host disk alerts; the watchdog reads `MEDIA_DB_PATH` read-only |
 | `vcTracker.js` | Voice-channel time tracking; `flushActiveVoiceSessions` runs on shutdown |
-| `backfill.js` | Throttled history backfill, run by `/sync-gecmis` |
-| `scanMediaAndGifs.js` | Manual one-off scanner: `node src/scanMediaAndGifs.js` (channels from `MEDIA_SCAN_CHANNEL_IDS`). Not started by the bot |
+| `backfill.js` | Throttled history backfill, run by `/sync-gecmis` (clips only, no vault copy) |
+| `vaultQueue.js` | Small queue: at most 2 vault copies at once, 50 waiting, so a burst can't push the bot past PM2's 350M limit. Failed copies retry twice; older blobless rows are only fixed by `node src/vaultWorker.js --migrate` (nothing on the VPS runs it on a schedule) |
 | `config.js` | Env loading; skips `.env` under `node --test`. Falls back to a public dev key, so `index.js` refuses to start without `DB_ENCRYPTION_KEY` |
 | Shared (see above) | `db.js` (1.5k lines, schema + queries), `chatBridge.js`, `parser.js`, `vaultWorker.js`, `vaultStorage.js`, `crypto.js`, `cdnRefresher.js`, `discordSpotifyTracker.js`, `dynamicDataDefaults.js` |
 
 ## Habits
 
 - Before deleting an export, grep `src/` and `tests/`; some exports exist only for tests (e.g. `botEmbeds.createSystemEmbed`, `systemStats.readDockerContainers`).
-- Local Node is 26, but `node_modules/better-sqlite3` is built for Node 20 (ABI 115) and v11 won't compile on 26, so 8 DB tests fail there with `ERR_DLOPEN_FAILED`. A persistent Node 20.20.2 is installed: put it first on `PATH` for `npm test` and `./deploy.sh` (`PATH=$HOME/.local/share/node20/node_modules/node/bin:$PATH`), or run `~/.local/bin/node20 --test tests/*.test.js`. Don't reinstall it into `/tmp` (wiped on reboot). All 35 tests pass there.
+- Local Node is 26, but `node_modules/better-sqlite3` is built for Node 20 (ABI 115) and v11 won't compile on 26, so 8 DB tests fail there with `ERR_DLOPEN_FAILED`. A persistent Node 20.20.2 is installed: put it first on `PATH` for `npm test` and `./deploy.sh` (`PATH=$HOME/.local/share/node20/node_modules/node/bin:$PATH`), or run `~/.local/bin/node20 --test tests/*.test.js`. Don't reinstall it into `/tmp` (wiped on reboot).
 - Local `.env` exists and is gitignored; never print it.

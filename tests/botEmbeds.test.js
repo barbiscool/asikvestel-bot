@@ -8,7 +8,7 @@ const {
   createQuoteEmbed,
   createStatsEmbed,
   createMediaHostStatsEmbed,
-  createSystemEmbed,
+  createSystemPageEmbed,
   createStatusAlertEmbed
 } = require('../src/botEmbeds');
 
@@ -111,13 +111,12 @@ test('Bot Embeds: operational telemetry, system status, and alert embeds', () =>
     os: { platform: 'linux', arch: 'x64', release: '6.8.0', nodeVersion: 'v20.20.2' }
   };
 
-  const sysPayload = createSystemEmbed({
+  const sysEmbed = createSystemPageEmbed({
+    page: 'vps',
     stats: mockStats,
     formatBytes: (b) => `${(b / (1024 * 1024)).toFixed(0)} MB`,
     formatDuration: (s) => `${Math.floor(s / 3600)}s`
-  });
-
-  const sysEmbed = sysPayload.embeds[0].data;
+  }).data;
   assert.strictEqual(sysEmbed.color, BOT_COLORS.SUCCESS);
   assert.ok(sysEmbed.title.includes('VPS Genel'));
   assert.ok(sysEmbed.fields.some(f => f.name.includes('İşlemci')));

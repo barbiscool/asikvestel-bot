@@ -7,6 +7,7 @@ async function runThrottledBackfill(channel, maxMessages = 200) {
   let scanned = 0;
   let added = 0;
   let lastId = null;
+  let rateLimitHits = 0;
 
   console.log(`[Backfill] Starting throttled backfill for channel #${channel.name || channel.id}, max: ${maxMessages}`);
 
@@ -19,7 +20,7 @@ async function runThrottledBackfill(channel, maxMessages = 200) {
     try {
       messages = await channel.messages.fetch(options);
     } catch (err) {
-      if (err.status === 429) {
+      if (err.status === 429 && ++rateLimitHits <= 5) {
         const retryAfter = (err.retryAfter || 5) * 1000;
         console.warn(`[Backfill] Rate limit hit. Sleeping for ${retryAfter}ms`);
         await sleep(retryAfter + 1000);

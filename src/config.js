@@ -11,8 +11,6 @@ function getEnv(key, defaultValue = undefined) {
 }
 
 const config = {
-  NODE_ENV: getEnv('NODE_ENV', 'development'),
-
   // Discord Bot Credentials
   BOT_TOKEN: getEnv('DISCORD_BOT_TOKEN', ''),
   CLIENT_ID: getEnv('DISCORD_CLIENT_ID', ''),
@@ -28,10 +26,6 @@ const config = {
 
   // Channel IDs
   CLIPS_CHANNELS: getEnv('CLIPS_CHANNEL_IDS', '1508809916905685224,1389232968140062823')
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean),
-  MEDIA_SCAN_CHANNEL_IDS: getEnv('MEDIA_SCAN_CHANNEL_IDS', '1508809916905685224,1389232968140062823,1210949927702757447,1072955073421901834')
     .split(',')
     .map(s => s.trim())
     .filter(Boolean),
@@ -85,7 +79,6 @@ const config = {
 
   // Web & Auth
   SITE_URL: getEnv('SITE_URL', 'http://localhost:4000'),
-  SESSION_SECRET: getEnv('SESSION_SECRET', 'fallback_dev_secret_key_change_in_production'),
 
   // Storage & Crypto
   get DB_PATH() { return getEnv('DB_PATH', path.resolve(__dirname, '../../clips.db')); },
@@ -95,7 +88,7 @@ const config = {
     return getEnv('VAULT_STORAGE_DIR', path.resolve(__dirname, '../../data/vault_blobs'));
   },
   get VAULT_ENCRYPTION_KEY() {
-    return getEnv('VAULT_ENCRYPTION_KEY', this.DB_ENCRYPTION_KEY || this.SESSION_SECRET);
+    return getEnv('VAULT_ENCRYPTION_KEY', this.DB_ENCRYPTION_KEY);
   }
 };
 
