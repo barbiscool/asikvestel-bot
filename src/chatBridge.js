@@ -133,7 +133,8 @@ class ChatBridge extends EventEmitter {
       for (const guildId of trackedGuilds) {
         try {
           const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${userId}`, {
-            headers: { Authorization: `Bot ${botToken}` }
+            headers: { Authorization: `Bot ${botToken}` },
+            signal: AbortSignal.timeout(5000)
           });
           if (res.ok) {
             if (!this.memberCache) this.memberCache = new Map();

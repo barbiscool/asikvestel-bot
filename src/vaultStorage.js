@@ -140,6 +140,9 @@ function createDecryptedStream(blobId) {
     fileStream.destroy(err);
   });
 
+  // pipe() does not close the file when the reader goes away (a browser cancelling a video): without this every cancelled download kept its file open
+  decipher.on('close', () => fileStream.destroy());
+
   return fileStream.pipe(decipher);
 }
 

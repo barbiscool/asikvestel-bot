@@ -139,3 +139,16 @@ test('VaultStorage: Non-existent blob handling', () => {
     return err.code === 'ENOENT';
   });
 });
+
+test('VaultStorage: a stream that is closed early closes its file too', { skip: !fs.existsSync('/proc/self/fd') }, async () => {
+  const { blobId } = await vaultStorage.encryptAndSaveBlob(crypto.randomBytes(3 * 1024 * 1024));
+  const openFiles = () => fs.readdirSync('/proc/self/fd').length;
+  const before = openFiles();
+  for (let i = 0; i < 20; i++) {
+    const stream = vaultStorage.createDecryptedStream(blobId);
+    await new Promise(resolve => stream.once('data', resolve));
+    stream.destroy(); // what a cancelled download does
+  }
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.ok(openFiles() - before < 3, `${openFiles() - before} files left open`);
+});

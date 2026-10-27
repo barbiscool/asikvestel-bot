@@ -12,12 +12,23 @@ function isUrlExpired(url) {
   }
 }
 
+// Refreshed links stay valid for about a day, so remember them instead of asking Discord again on every page of clips.
+const REMEMBER_MS = 6 * 60 * 60 * 1000;
+const remembered = new Map(); // original url -> { url, at }
+
 async function refreshAttachmentUrls(botToken, urls) {
   if (!urls || urls.length === 0 || !botToken) return {};
 
-  const expiredUrls = Array.from(new Set(urls.filter(isUrlExpired)));
+  const now = Date.now();
+  const refreshedMap = {};
+  const expiredUrls = [];
+  for (const url of new Set(urls.filter(isUrlExpired))) {
+    const known = remembered.get(url);
+    if (known && now - known.at < REMEMBER_MS) refreshedMap[url] = known.url;
+    else expiredUrls.push(url);
+  }
   if (expiredUrls.length === 0) {
-    return {};
+    return refreshedMap;
   }
 
   const BATCH_SIZE = 50;
@@ -25,8 +36,6 @@ async function refreshAttachmentUrls(botToken, urls) {
   for (let i = 0; i < expiredUrls.length; i += BATCH_SIZE) {
     chunks.push(expiredUrls.slice(i, i + BATCH_SIZE));
   }
-
-  const refreshedMap = {};
 
   await Promise.all(
     chunks.map(async (chunk) => {
@@ -37,7 +46,8 @@ async function refreshAttachmentUrls(botToken, urls) {
             'Authorization': `Bot ${botToken}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ attachment_urls: chunk })
+          body: JSON.stringify({ attachment_urls: chunk }),
+          signal: AbortSignal.timeout(8000) // a stuck Discord call must not hold the page open
         });
 
         if (!response.ok) {
@@ -50,6 +60,7 @@ async function refreshAttachmentUrls(botToken, urls) {
           for (const item of data.refreshed_urls) {
             if (item.original && item.refreshed) {
               refreshedMap[item.original] = item.refreshed;
+              remembered.set(item.original, { url: item.refreshed, at: now });
             }
           }
         }
