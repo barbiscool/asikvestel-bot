@@ -15,6 +15,9 @@ function isUrlExpired(url) {
 // Refreshed links stay valid for about a day, so remember them instead of asking Discord again on every page of clips.
 const REMEMBER_MS = 6 * 60 * 60 * 1000;
 const remembered = new Map(); // original url -> { url, at }
+// Links Discord answered without a fresh one (the message or file is gone) stay unrefreshed for an hour, so every page of clips doesn't ask again.
+const DEAD_MS = 60 * 60 * 1000;
+const dead = new Map(); // original url -> at
 
 async function refreshAttachmentUrls(botToken, urls) {
   if (!urls || urls.length === 0 || !botToken) return {};
@@ -25,6 +28,7 @@ async function refreshAttachmentUrls(botToken, urls) {
   for (const url of new Set(urls.filter(isUrlExpired))) {
     const known = remembered.get(url);
     if (known && now - known.at < REMEMBER_MS) refreshedMap[url] = known.url;
+    else if (now - (dead.get(url) || 0) < DEAD_MS) continue;
     else expiredUrls.push(url);
   }
   if (expiredUrls.length === 0) {
@@ -63,6 +67,9 @@ async function refreshAttachmentUrls(botToken, urls) {
               remembered.set(item.original, { url: item.refreshed, at: now });
             }
           }
+          // Discord answered, and these links did not come back: remember that, so the next page does not ask again.
+          if (dead.size >= 2000) dead.clear();
+          for (const url of chunk) if (!refreshedMap[url]) dead.set(url, now);
         }
       } catch (err) {
         console.error('[CDN Refresher] Error refreshing chunk:', err.message);

@@ -41,3 +41,22 @@ test('backlog migration: stops when the vault disk is nearly full', async () => 
   assert.strictEqual(res.processed, 0);
   assert.match(res.stoppedFor, /free/);
 });
+
+test('backlog migration: Discord-hosted links (cdn and media.*.net) are re-signed before the download', async () => {
+  const db = getDb();
+  db.exec('DELETE FROM images_vault');
+  insertImage({ user_id: '1', user_name: 'u', title: 'cdn', media_type: 'gif', image_url: 'https://cdn.discordapp.com/attachments/1/2/a.gif', created_at: 1 });
+  insertImage({ user_id: '1', user_name: 'u', title: 'net', media_type: 'gif', image_url: 'https://media.discordapp.net/attachments/1/2/b.gif', created_at: 2 });
+  insertImage({ user_id: '1', user_name: 'u', title: 'tenor', media_type: 'gif', image_url: 'https://media.tenor.com/c.gif', created_at: 3 });
+  const asked = [];
+  const fetched = [];
+  const res = await migrateBacklog('images', {
+    log: () => {}, minFreeBytes: 0, freeBytesOf: () => 1e12,
+    refresh: async (urls) => { asked.push(...urls); return Object.fromEntries(urls.map((u) => [u, u + '?ex=fresh'])); },
+    fetchBuffer: async (url) => { fetched.push(url); return Buffer.from('x'); },
+    saveBlob: async () => ({ blobId: 'b' })
+  });
+  assert.strictEqual(res.succeeded, 3);
+  assert.deepStrictEqual(asked.sort(), ['https://cdn.discordapp.com/attachments/1/2/a.gif', 'https://media.discordapp.net/attachments/1/2/b.gif']);
+  assert.ok(fetched.filter((u) => u.endsWith('?ex=fresh')).length === 2 && fetched.includes('https://media.tenor.com/c.gif'));
+});

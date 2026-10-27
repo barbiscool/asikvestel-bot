@@ -494,8 +494,7 @@ function insertImage(img) {
   );
 }
 
-function getImages(filters = {}) {
-  const db = getDb();
+function imageFilter(filters) {
   const conditions = [];
   const params = [];
 
@@ -511,11 +510,23 @@ function getImages(filters = {}) {
     conditions.push('(title LIKE ? OR user_name LIKE ?)');
     params.push(`%${filters.query}%`, `%${filters.query}%`);
   }
+  return { whereClause: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '', params };
+}
 
+// One page of images, newest first unless sort is 'asc'. limit is capped at 250 and page is 1-based (clamped like getClips).
+function getImages(filters = {}) {
+  const db = getDb();
+  const { whereClause, params } = imageFilter(filters);
   const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 250, 1), 250);
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const stmt = db.prepare(`SELECT * FROM images_vault ${whereClause} ORDER BY created_at DESC LIMIT ?`);
-  return stmt.all(...params, limit).map(formatImageRow);
+  const page = Math.min(Math.max(parseInt(filters.page, 10) || 1, 1), 1e6);
+  const sortDir = filters.sort === 'asc' ? 'ASC' : 'DESC';
+  const stmt = db.prepare(`SELECT * FROM images_vault ${whereClause} ORDER BY created_at ${sortDir}, id ${sortDir} LIMIT ? OFFSET ?`);
+  return stmt.all(...params, limit, (page - 1) * limit).map(formatImageRow);
+}
+
+function countImages(filters = {}) {
+  const { whereClause, params } = imageFilter(filters);
+  return getDb().prepare(`SELECT COUNT(*) AS total FROM images_vault ${whereClause}`).get(...params).total;
 }
 
 function getImageById(id) {
@@ -1514,6 +1525,7 @@ module.exports = {
   getClips,
   insertImage,
   getImages,
+  countImages,
   getImageById,
   getClipById,
   updateImageVaultBlob,

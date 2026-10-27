@@ -11,7 +11,6 @@ const fs = require('fs');
 const config = require('../src/config');
 const { getDb, closeDb, formatImageRow, formatClipRow, updateImageVaultBlob, updateClipVaultBlob } = require('../src/db');
 const { fetchMediaBuffer } = require('../src/vaultWorker');
-const { refreshAttachmentUrls } = require('../src/cdnRefresher');
 const vaultStorage = require('../src/vaultStorage');
 const { createQueue } = require('../src/vaultQueue');
 
@@ -19,6 +18,29 @@ const KINDS = {
   images: { table: 'images_vault', urlField: 'image_url', extraWhere: '', format: formatImageRow, save: updateImageVaultBlob },
   clips: { table: 'clips', urlField: 'media_url', extraWhere: "AND media_type = 'video_discord'", format: formatClipRow, save: updateClipVaultBlob }
 };
+
+const DISCORD_HOST = /^https:\/\/(cdn\.discordapp\.com|media\.discordapp\.net)\//;
+
+/**
+ * Asks Discord for a working link for every Discord-hosted URL. cdnRefresher only refreshes links whose
+ * expiry parameter is past, but old links without one are dead too and Discord can still re-sign most of them.
+ */
+async function refreshAll(urls) {
+  const out = {};
+  for (let i = 0; i < urls.length; i += 50) {
+    try {
+      const res = await fetch('https://discord.com/api/v10/attachments/refresh-urls', {
+        method: 'POST',
+        headers: { Authorization: `Bot ${config.BOT_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attachment_urls: urls.slice(i, i + 50) }),
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!res.ok) continue;
+      for (const item of (await res.json()).refreshed_urls || []) out[item.original] = item.refreshed;
+    } catch {}
+  }
+  return out;
+}
 
 function freeBytes(dir) {
   const s = fs.statfsSync(dir);
@@ -37,7 +59,7 @@ async function migrateBacklog(kind, {
   concurrency = 2, // each file is held in memory up to 50 MB (about twice while encrypting)
   fetchBuffer = fetchMediaBuffer,
   saveBlob = (buf) => vaultStorage.encryptAndSaveBlob(buf),
-  refresh = (urls) => refreshAttachmentUrls(config.BOT_TOKEN, urls),
+  refresh = refreshAll,
   freeBytesOf = () => freeBytes(config.VAULT_STORAGE_DIR),
   log = console.log
 } = {}) {
@@ -60,7 +82,7 @@ async function migrateBacklog(kind, {
     if (rows.length === 0) break;
     lastId = rows[rows.length - 1].id;
 
-    const discordUrls = rows.map((r) => r[k.urlField]).filter((u) => u && u.includes('cdn.discordapp.com'));
+    const discordUrls = rows.map((r) => r[k.urlField]).filter((u) => DISCORD_HOST.test(u || ''));
     let fresh = {};
     if (discordUrls.length > 0 && !dryRun) fresh = await refresh(discordUrls);
 
@@ -106,4 +128,4 @@ if (require.main === module) {
   })();
 }
 
-module.exports = { migrateBacklog };
+module.exports = { migrateBacklog, refreshAll };
