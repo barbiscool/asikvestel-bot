@@ -125,3 +125,11 @@ test('/clip and /resim-ekle ask a member to wait 10 seconds between uploads (adm
   assert.match(await run(ADMIN_ID), /Geçersiz Medya/);
   client.removeAllListeners();
 });
+
+test('/iau refuses non-admins before touching the panel', async () => {
+  const i = fakeInteraction('iau', { userId: '1', sub: 'add', strings: { isim: 'Steve' } });
+  await dispatch(i);
+  assert.strictEqual(i.calls.length, 1);
+  assert.strictEqual(i.calls[0].ephemeral, true);
+  assert.match(i.calls[0].embeds[0].description ?? i.calls[0].embeds[0].data?.description ?? '', /Root Admin/);
+});

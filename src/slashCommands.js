@@ -165,7 +165,31 @@ const commands = [
     .addStringOption(opt =>
       opt.setName('etiketler')
          .setDescription('Virgülle ayrılmış kısa etiketler (örn: deadlock, dl).')
-         .setRequired(false))
+         .setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('iau')
+    .setDescription('IAU Minecraft sunucusunu yönetir. (Yalnızca Root Admin Barb)')
+    .addSubcommandGroup(group =>
+      group.setName('whitelist')
+        .setDescription('IAU sunucusunun whitelist listesi.')
+        .addSubcommand(sub =>
+          sub.setName('add')
+             .setDescription('Bir Minecraft kullanıcı adını whitelist\'e ekler.')
+             .addStringOption(opt =>
+               opt.setName('isim')
+                  .setDescription('Minecraft kullanıcı adı (büyük/küçük harf aynen, 3-16 karakter).')
+                  .setRequired(true)))
+        .addSubcommand(sub =>
+          sub.setName('remove')
+             .setDescription('Bir Minecraft kullanıcı adını whitelist\'ten çıkarır.')
+             .addStringOption(opt =>
+               opt.setName('isim')
+                  .setDescription('Minecraft kullanıcı adı.')
+                  .setRequired(true)))
+        .addSubcommand(sub =>
+          sub.setName('list')
+             .setDescription('Whitelist listesi komutunu sunucu konsoluna gönderir.')))
 ];
 
 async function deploySlashCommands(config, targetGuildId = null) {

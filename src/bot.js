@@ -17,6 +17,7 @@ const {
 } = require('./db');
 const { initVoiceTracker } = require('./vcTracker');
 const { deploySlashCommands } = require('./slashCommands');
+const { isValidMinecraftName, sendWhitelistCommand } = require('./iauPanel');
 const { runThrottledBackfill } = require('./backfill');
 const { isAuthorizedAdmin, getSystemStats, formatBytes, formatDuration } = require('./systemStats');
 const { initMediaStorageWatchdog, getMediaHostStats } = require('./mediaStorageWatchdog');
@@ -732,6 +733,41 @@ function createBotClient(config) {
           }]
         });
       }
+    }
+
+    if (interaction.commandName === 'iau') {
+      if (!isAuthorizedAdmin(interaction.user, config)) {
+        return interaction.reply({
+          ...createStatusAlertEmbed({
+            type: 'error',
+            title: 'Yetkisiz Erişim',
+            message: 'Bu komut yalnızca Root Admin (Barb) tarafından kullanılabilir.'
+          }),
+          ephemeral: true
+        });
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+
+      const action = interaction.options.getSubcommand();
+      const name = action === 'list' ? null : (interaction.options.getString('isim') || '').trim();
+      const fail = (message) => interaction.editReply(createStatusAlertEmbed({ type: 'error', title: 'IAU Whitelist', message }));
+
+      if (action !== 'list' && !isValidMinecraftName(name)) {
+        return fail('Geçersiz kullanıcı adı. 3-16 karakter; yalnızca harf, rakam ve alt çizgi.');
+      }
+
+      const result = await sendWhitelistCommand(config, action, name);
+      if (result.error === 'no-key') return fail('`IAU_PANEL_API_KEY` ayarlanmamış.');
+      if (result.error === 'network') return fail('Panele ulaşılamadı.');
+      if (!result.ok) return fail(`Panel HTTP ${result.status} döndürdü.`);
+
+      const done = {
+        add: `**${name}** whitelist'e eklendi.`,
+        remove: `**${name}** whitelist'ten çıkarıldı.`,
+        list: 'Whitelist listesi komutu konsola gönderildi (çıktı konsolda görünür).'
+      }[action];
+      return interaction.editReply(createStatusAlertEmbed({ type: 'success', title: 'IAU Whitelist', message: done }));
     }
 
     if (interaction.commandName === 'oyun-ekle') {

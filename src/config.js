@@ -77,6 +77,11 @@ const config = {
     return {};
   },
 
+  // IAU Minecraft server (Pterodactyl). The key is a client API key (ptlc_...); leave unset to disable /iau.
+  IAU_PANEL_URL: getEnv('IAU_PANEL_URL', 'https://panel.asikvestel.org'),
+  IAU_SERVER_ID: getEnv('IAU_SERVER_ID', 'c03322fe'),
+  get IAU_PANEL_API_KEY() { return getEnv('IAU_PANEL_API_KEY', ''); },
+
   // Web & Auth
   SITE_URL: getEnv('SITE_URL', 'http://localhost:4000'),
 
